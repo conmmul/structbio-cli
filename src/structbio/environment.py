@@ -55,26 +55,211 @@ def git_commit(path: Path) -> str | None:
     return output.splitlines()[0] if output else None
 
 
-def detect_gpu() -> dict[str, Any]:
-    names = command_output(
-        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]
+# nvidia-smi is slow to answer on a cold driver, on a busy machine, and on
+# hosts with many cards. Three seconds is not enough, and a timeout here reads
+# to the researcher as "you have no GPU".
+NVIDIA_SMI_TIMEOUT = 20.0
+
+# Where nvidia-smi lives when it is not on PATH, which happens in trimmed
+# login environments, inside containers, and on WSL.
+NVIDIA_SMI_LOCATIONS = (
+    "/usr/bin/nvidia-smi",
+    "/bin/nvidia-smi",
+    "/usr/local/bin/nvidia-smi",
+    "/usr/local/nvidia/bin/nvidia-smi",
+    "/opt/nvidia/bin/nvidia-smi",
+    "/usr/lib/wsl/lib/nvidia-smi",
+)
+
+# Compute capability by GPU family, used only when the driver is too old to
+# report compute_cap itself. From NVIDIA's published capabilities.
+CAPABILITY_BY_NAME: tuple[tuple[str, tuple[int, int]], ...] = (
+    ("h200", (9, 0)),
+    ("h100", (9, 0)),
+    ("gh200", (9, 0)),
+    ("l40", (8, 9)),
+    ("l4", (8, 9)),
+    ("rtx 6000 ada", (8, 9)),
+    ("rtx 5880", (8, 9)),
+    ("rtx 5000 ada", (8, 9)),
+    ("rtx 4500 ada", (8, 9)),
+    ("rtx 4000 ada", (8, 9)),
+    ("rtx 40", (8, 9)),
+    ("a100", (8, 0)),
+    ("a30", (8, 0)),
+    ("a800", (8, 0)),
+    ("a40", (8, 6)),
+    ("a10", (8, 6)),
+    ("a6000", (8, 6)),
+    ("a5000", (8, 6)),
+    ("a4500", (8, 6)),
+    ("a4000", (8, 6)),
+    ("a2000", (8, 6)),
+    ("rtx 30", (8, 6)),
+    ("v100", (7, 0)),
+    ("titan v", (7, 0)),
+    ("t4", (7, 5)),
+    ("rtx 20", (7, 5)),
+    ("quadro rtx", (7, 5)),
+    ("p100", (6, 0)),
+)
+
+
+@dataclass(frozen=True)
+class GpuReport:
+    """What asking the machine about its GPUs actually produced."""
+
+    executable: str | None
+    names: tuple[str, ...] = ()
+    capabilities: tuple[tuple[int, int], ...] = ()
+    driver_cuda: str | None = None
+    driver_version: str | None = None
+    error: str | None = None
+    capability_source: str = "none"
+
+    @property
+    def available(self) -> bool:
+        return bool(self.names)
+
+
+def nvidia_smi() -> str | None:
+    """Find nvidia-smi, honouring STRUCTBIO_NVIDIA_SMI when it is somewhere odd."""
+
+    override = os.environ.get("STRUCTBIO_NVIDIA_SMI")
+    if override:
+        return override if Path(override).exists() else None
+    found = shutil.which("nvidia-smi")
+    if found:
+        return found
+    for candidate in NVIDIA_SMI_LOCATIONS:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _run_nvidia_smi(executable: str, fields: str) -> tuple[str | None, str | None]:
+    """Query nvidia-smi, returning its output or a description of the failure."""
+
+    try:
+        completed = subprocess.run(
+            [executable, f"--query-gpu={fields}", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=NVIDIA_SMI_TIMEOUT,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return None, (
+            f"{executable} did not answer within {NVIDIA_SMI_TIMEOUT:.0f} seconds. "
+            "The driver may be busy or wedged; try running it yourself"
+        )
+    except OSError as exc:
+        return None, f"{executable} could not be run: {exc}"
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout).strip().splitlines()
+        return None, (
+            f"{executable} exited with code {completed.returncode}"
+            + (f": {detail[-1]}" if detail else "")
+        )
+    return completed.stdout.strip(), None
+
+
+def capability_from_name(name: str) -> tuple[int, int] | None:
+    """Infer a compute capability from a GPU's model name."""
+
+    lowered = name.lower()
+    for fragment, capability in CAPABILITY_BY_NAME:
+        if fragment in lowered:
+            return capability
+    return None
+
+
+def gpu_report() -> GpuReport:
+    """Ask the machine about its GPUs, keeping any reason the question failed."""
+
+    executable = nvidia_smi()
+    if executable is None:
+        return GpuReport(
+            executable=None,
+            error=(
+                "nvidia-smi was not found on PATH or in the usual locations. "
+                "Set STRUCTBIO_NVIDIA_SMI to its full path if it is installed "
+                "somewhere else"
+            ),
+        )
+
+    output, error = _run_nvidia_smi(executable, "name,driver_version")
+    if output is None:
+        return GpuReport(executable=executable, error=error)
+    names: list[str] = []
+    driver_version: str | None = None
+    for line in output.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if fields and fields[0]:
+            names.append(fields[0])
+            if len(fields) > 1 and not driver_version:
+                driver_version = fields[1]
+    if not names:
+        return GpuReport(
+            executable=executable,
+            driver_version=driver_version,
+            error=f"{executable} ran but listed no GPUs",
+        )
+
+    # compute_cap needs a reasonably recent driver; fall back to the model name
+    # rather than treating an old driver as an absent card.
+    capabilities: list[tuple[int, int]] = []
+    source = "none"
+    reported, _ = _run_nvidia_smi(executable, "compute_cap")
+    if reported:
+        for line in reported.splitlines():
+            match = re.match(r"\s*(\d+)\.(\d+)", line)
+            if match:
+                capabilities.append((int(match.group(1)), int(match.group(2))))
+        if capabilities:
+            source = "nvidia-smi"
+    if not capabilities:
+        for name in names:
+            inferred = capability_from_name(name)
+            if inferred:
+                capabilities.append(inferred)
+        if capabilities:
+            source = "model name"
+
+    driver_cuda = None
+    full = command_output([executable], timeout=NVIDIA_SMI_TIMEOUT)
+    if full and "CUDA Version:" in full:
+        driver_cuda = full.split("CUDA Version:", 1)[1].split()[0]
+
+    return GpuReport(
+        executable=executable,
+        names=tuple(names),
+        capabilities=tuple(capabilities),
+        driver_cuda=driver_cuda,
+        driver_version=driver_version,
+        capability_source=source,
     )
-    driver = command_output(["nvidia-smi"])
-    cuda = None
-    if driver and "CUDA Version:" in driver:
-        cuda = driver.split("CUDA Version:", 1)[1].split()[0]
+
+
+def detect_gpu() -> dict[str, Any]:
+    report = gpu_report()
     return {
-        "available": bool(names),
-        "models": names.splitlines() if names else [],
-        "cuda_driver": cuda,
+        "available": report.available,
+        "models": list(report.names),
+        "cuda_driver": report.driver_cuda,
+        "error": report.error,
     }
 
 
 def gpu_free_memory() -> list[tuple[int, int]]:
     """Return (index, free MiB) per GPU, most free first."""
 
+    executable = nvidia_smi()
+    if executable is None:
+        return []
     output = command_output(
-        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+        [executable, "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+        timeout=NVIDIA_SMI_TIMEOUT,
         only_on_success=True,
     )
     if not output:
@@ -274,20 +459,9 @@ MINIMUM_CUDA_FOR_CAPABILITY: tuple[tuple[tuple[int, int], tuple[int, int], str],
 
 
 def gpu_capabilities() -> list[tuple[int, int]]:
-    """Each GPU's compute capability, as nvidia-smi reports it."""
+    """Each GPU's compute capability, from the driver or from its model name."""
 
-    output = command_output(
-        ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
-        only_on_success=True,
-    )
-    if not output:
-        return []
-    capabilities: list[tuple[int, int]] = []
-    for line in output.splitlines():
-        match = re.match(r"\s*(\d+)\.(\d+)", line)
-        if match:
-            capabilities.append((int(match.group(1)), int(match.group(2))))
-    return capabilities
+    return list(gpu_report().capabilities)
 
 
 def required_cuda(capability: tuple[int, int]) -> tuple[tuple[int, int], str] | None:

@@ -222,7 +222,11 @@ def machine_capability() -> tuple[int, int] | None:
 
 
 def plan_environment(
-    tool: str, installation: ToolInstallation, *, environment: str | None = None
+    tool: str,
+    installation: ToolInstallation,
+    *,
+    environment: str | None = None,
+    capability: tuple[int, int] | None = None,
 ) -> EnvironmentPlan:
     """Work out how to build this tool's environment on this machine."""
 
@@ -230,7 +234,7 @@ def plan_environment(
     if tool == "proteinmpnn":
         return _proteinmpnn_plan(name)
     if tool == "rfdiffusion":
-        return _rfdiffusion_plan(name, installation)
+        return _rfdiffusion_plan(name, installation, capability)
     return EnvironmentPlan(
         tool=tool,
         environment=name,
@@ -275,21 +279,44 @@ def _proteinmpnn_plan(name: str) -> EnvironmentPlan:
     )
 
 
-def _rfdiffusion_plan(name: str, installation: ToolInstallation) -> EnvironmentPlan:
+def _rfdiffusion_plan(
+    name: str, installation: ToolInstallation, capability: tuple[int, int] | None = None
+) -> EnvironmentPlan:
     """RFdiffusion needs PyTorch, DGL and its bundled SE3Transformer to agree."""
 
     checkout = installation.path.expanduser() if installation.path else None
-    capability = machine_capability()
+    capability = capability or machine_capability()
 
     if capability is None:
+        # A card that is present but unidentified is a different problem from no
+        # card at all, and saying "no GPU" to someone looking at one is useless.
+        report = environment.gpu_report()
+        if report.available:
+            return EnvironmentPlan(
+                tool="rfdiffusion",
+                environment=name,
+                blocked=(
+                    f"this machine has {report.names[0]}, but its compute capability "
+                    "could not be determined, and the right versions depend on it"
+                ),
+                alternatives=(
+                    "state it yourself: structbio env create rfdiffusion --capability 8.9",
+                    "find it with: nvidia-smi --query-gpu=compute_cap --format=csv",
+                    "or look the card up in NVIDIA's CUDA GPUs table",
+                ),
+            )
         return EnvironmentPlan(
             tool="rfdiffusion",
             environment=name,
             blocked=(
                 "no NVIDIA GPU was found, and RFdiffusion is not usable on a CPU "
                 "in any practical sense"
+                + (f". {report.error}" if report.error else "")
             ),
-            alternatives=("run it on a machine with an NVIDIA GPU",),
+            alternatives=(
+                "check the detection itself with: structbio gpu",
+                "run it on a machine with an NVIDIA GPU",
+            ),
         )
     if checkout is None:
         return EnvironmentPlan(

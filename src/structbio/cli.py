@@ -991,6 +991,11 @@ def env_verify(
 @env_app.command("create")
 def env_create(
     tool: str = typer.Argument(..., help="rfdiffusion or proteinmpnn"),
+    capability: str | None = typer.Option(
+        None,
+        "--capability",
+        help="Compute capability such as 8.9, when the driver cannot report it",
+    ),
     force: bool = typer.Option(False, "--force", help="Replace an existing environment"),
     yes: bool = typer.Option(False, "--yes", help="Do not ask before building"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the plan and build nothing"),
@@ -1003,7 +1008,14 @@ def env_create(
     """
 
     installation, configured = _installation_for(tool)
-    plan = provision.plan_environment(tool, installation)
+    stated: tuple[int, int] | None = None
+    if capability:
+        try:
+            major, minor = (int(part) for part in capability.split(".", 1))
+            stated = (major, minor)
+        except ValueError:
+            _abort(f"Invalid --capability {capability!r}; write it as 8.9")
+    plan = provision.plan_environment(tool, installation, capability=stated)
     typer.echo(f"{tool}: environment {plan.environment}\n")
 
     if plan.blocked:
@@ -1060,6 +1072,53 @@ def env_create(
         typer.echo(
             f"\nRecord it with: structbio setup --update, or set "
             f"'environment: {plan.environment}' for {tool} in the configuration."
+        )
+
+
+@app.command("gpu")
+def gpu_command() -> None:
+    """Show what this machine reports about its GPUs, and why if it cannot."""
+
+    report = environment.gpu_report()
+    typer.echo(f"{'nvidia-smi':<22} {report.executable or 'NOT FOUND'}")
+    if report.driver_version:
+        typer.echo(f"{'driver':<22} {report.driver_version}")
+    if report.driver_cuda:
+        typer.echo(f"{'driver CUDA':<22} {report.driver_cuda}")
+
+    if report.error:
+        typer.echo(f"\nNo GPU information: {report.error}\n")
+        typer.echo("Things to check, in order:")
+        typer.echo("  nvidia-smi                     does it work outside structbio?")
+        typer.echo("  command -v nvidia-smi          is it on PATH in this shell?")
+        typer.echo("  STRUCTBIO_NVIDIA_SMI=/path/to/nvidia-smi structbio gpu")
+        typer.echo("  ls /usr/bin/nvidia-smi         is the driver installed at all?")
+        typer.echo(
+            "\nIf nvidia-smi works in your own shell but not here, structbio is being "
+            "run somewhere with a different PATH, such as a container or a cron job."
+        )
+        raise typer.Exit(1)
+
+    typer.echo("")
+    for index, name in enumerate(report.names):
+        capability = (
+            report.capabilities[index]
+            if index < len(report.capabilities)
+            else None
+        )
+        described = f"{capability[0]}.{capability[1]}" if capability else "unknown"
+        typer.echo(f"  GPU {index}: {name}  (compute capability {described})")
+
+    if report.capability_source == "model name":
+        typer.echo(
+            "\nThe driver did not report compute capability, so it was inferred "
+            "from the model name. Update the driver for a definitive answer."
+        )
+    elif report.capability_source == "none":
+        typer.echo(
+            "\nCompute capability is unknown: the driver does not report it and the "
+            "model name is not recognised. Pass it yourself where a command needs "
+            "it, for example: structbio env create rfdiffusion --capability 8.9"
         )
 
 
@@ -1368,6 +1427,9 @@ def doctor() -> None:
     typer.echo(f"{'GPU':<22} {'OK' if gpu['available'] else 'NOT FOUND'}")
     for model in gpu["models"]:
         typer.echo(f"{'':<22} {model}")
+    if not gpu["available"] and gpu.get("error"):
+        typer.echo(f"{'':<22} {gpu['error']}")
+        typer.echo(f"{'':<22} more detail: structbio gpu")
     if gpu["cuda_driver"]:
         typer.echo(f"{'CUDA driver':<22} {gpu['cuda_driver']}")
     typer.echo("")

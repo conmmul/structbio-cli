@@ -411,8 +411,40 @@ Run the `fix:` line that matches. If you have the tool installed somewhere
 else, `structbio detect` will find it and `structbio setup --update` will record
 it, which is quicker than editing the configuration by hand.
 
-`GPU NOT FOUND` on a laptop is normal. On the workstation it is a problem —
-report it.
+`GPU NOT FOUND` on a laptop is normal. On the workstation it means something is
+wrong, and this command says what:
+
+```bash
+structbio gpu
+```
+
+It reports the graphics card, its driver, and — when it cannot see one — the
+reason:
+
+| What it says | What it means |
+| --- | --- |
+| `nvidia-smi was not found` | The tool that reports on the card is not on this terminal's PATH, or the driver is not installed. |
+| `exited with code N` | The driver is installed but unhappy; the message after the code comes from the driver itself. |
+| `did not answer within 20 seconds` | The driver is busy or stuck. Try again; if it persists, report it. |
+| `ran but listed no GPUs` | The driver works but sees no card, which usually means a hardware or configuration fault. |
+
+First check whether the card is visible outside structbio at all:
+
+```bash
+nvidia-smi
+```
+
+If that works but `structbio gpu` does not, the two are running with different
+PATHs. Point structbio at it directly:
+
+```bash
+STRUCTBIO_NVIDIA_SMI=/usr/bin/nvidia-smi structbio gpu
+```
+
+If that fixes it, add that line to your shell profile as in
+[Step 5](#step-5--the-path-message). If `nvidia-smi` does not work either, the
+problem is the driver, not structbio — that is one for whoever runs the
+workstation.
 
 To see where structbio thinks everything is:
 

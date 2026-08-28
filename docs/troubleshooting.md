@@ -3,6 +3,22 @@
 Start with `structbio doctor`, then re-run the command with `--dry-run` to see
 exactly what would be executed.
 
+## The GPU is not detected
+
+`structbio gpu` reports what the machine said and why the answer failed, rather
+than the bare "NOT FOUND" that `doctor` shows.
+
+| Cause | Signature | Fix |
+| --- | --- | --- |
+| Not on PATH | `nvidia-smi was not found` | `STRUCTBIO_NVIDIA_SMI=/usr/bin/nvidia-smi` |
+| Driver error | `exited with code N: ...` | The text after the code is the driver's own. |
+| Slow or wedged driver | `did not answer within 20 seconds` | Run `nvidia-smi` yourself; the queries allow 20 seconds, not 3. |
+| No cards listed | `ran but listed no GPUs` | Hardware or driver configuration. |
+
+An old driver that cannot report `compute_cap` is **not** an absent GPU. The
+capability is then inferred from the model name, `structbio gpu` says it did
+so, and `--capability 8.9` states it outright when the card is not recognised.
+
 ## Which structbio am I running?
 
 `structbio doctor` names it first:
