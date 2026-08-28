@@ -78,3 +78,16 @@ def test_foreign_files_are_never_replaced_without_force(tmp_path: Path) -> None:
         for path, state in wrappers.install_wrappers(directory, launch="structbio", force=True)
     }
     assert states["rfdiffusion"] == "updated"
+
+
+def test_every_generated_wrapper_is_valid_shell() -> None:
+    """Generated source must be syntax-checked, not merely produced."""
+
+    import subprocess
+
+    for tool in wrappers.wrapper_tools():
+        script = wrappers.render_wrapper(tool, "/opt/venv/bin/structbio")
+        result = subprocess.run(
+            ["bash", "-n"], input=script, capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, f"{tool}: {result.stderr}"

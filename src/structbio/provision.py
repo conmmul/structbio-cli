@@ -139,7 +139,7 @@ try:
             result["gpu_error"] = str(exc)[:400]
 except Exception as exc:
     result["torch_error"] = str(exc)[:400]
-for module in {modules}:
+for module in __STRUCTBIO_MODULES__:
     try:
         __import__(module)
         result[module] = True
@@ -156,7 +156,15 @@ PROBE_MODULES = {
 
 
 def probe_source(tool: str) -> str:
-    return PROBE.format(modules=repr(list(PROBE_MODULES.get(tool, ()))))
+    """Fill in the modules to check.
+
+    A plain substitution, not str.format: the probe is Python source full of
+    braces of its own, which format would try to read as fields.
+    """
+
+    return PROBE.replace(
+        "__STRUCTBIO_MODULES__", repr(list(PROBE_MODULES.get(tool, ())))
+    )
 
 
 def parse_probe(output: str) -> ProbeResult:

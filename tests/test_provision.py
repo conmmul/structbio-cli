@@ -145,3 +145,44 @@ def test_unreadable_probe_output_is_not_mistaken_for_success() -> None:
     result = provision.parse_probe("conda: command not found")
     assert not result.ok
     assert result.failures()
+
+
+@pytest.mark.parametrize("tool", ["rfdiffusion", "proteinmpnn"])
+def test_the_probe_is_valid_python(tool: str) -> None:
+    """It is generated source; it has to compile before it can be run anywhere."""
+
+    compile(provision.probe_source(tool), "<probe>", "exec")
+
+
+@pytest.mark.parametrize("tool", ["rfdiffusion", "proteinmpnn"])
+def test_the_probe_runs_and_reports(tool: str) -> None:
+    """Run it for real, so a broken generator cannot pass unnoticed again."""
+
+    import subprocess
+    import sys
+
+    completed = subprocess.run(
+        [sys.executable, "-c", provision.probe_source(tool)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = provision.parse_probe(completed.stdout)
+    assert result.ok
+    assert result.values["python"].startswith("3.")
+    # Every module this tool needs must be asked about by name.
+    for module in provision.PROBE_MODULES[tool]:
+        assert module in result.values
+
+
+def test_the_probe_asks_about_each_tools_own_modules() -> None:
+    assert "dgl" in provision.probe_source("rfdiffusion")
+    assert "se3_transformer" in provision.probe_source("rfdiffusion")
+    assert "dgl" not in provision.probe_source("proteinmpnn")
+    assert "numpy" in provision.probe_source("proteinmpnn")
+
+
+def test_an_unknown_tool_still_produces_a_runnable_probe() -> None:
+    compile(provision.probe_source("colabfold"), "<probe>", "exec")
