@@ -3,6 +3,29 @@
 Start with `structbio doctor`, then re-run the command with `--dry-run` to see
 exactly what would be executed.
 
+## Which structbio am I running?
+
+`structbio doctor` names it first:
+
+```text
+structbio              0.2.0
+  package              /Users/you/structbio-cli/src/structbio
+  interpreter          /Users/you/structbio-cli/.venv/bin/python
+```
+
+### No such command 'install'. Did you mean 'install-wrappers'?
+
+An older checkout is being run. More than one clone of this repository, each
+with its own virtual environment, is the usual cause: whichever environment is
+active wins, regardless of which clone you are working in. Compare the package
+path in `structbio doctor` with the checkout you expect, and either activate the
+right environment or delete the stale clone.
+
+`structbio install-wrappers` writes a `structbio` command of its own into
+`~/.local/bin`, alongside the per-tool ones. It names its interpreter outright,
+so it runs the installation it was generated from whatever environment happens
+to be active. Re-run it after moving or rebuilding an environment.
+
 ## Installation diagnostics
 
 ### NOT CONFIGURED

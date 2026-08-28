@@ -1,3 +1,5 @@
+import os
+import subprocess
 from pathlib import Path
 
 from structbio import wrappers
@@ -14,8 +16,40 @@ def test_repository_wrappers_match_the_generated_template() -> None:
         assert path.read_text(encoding="utf-8") == wrappers.render_wrapper(tool)
 
 
-def test_every_backend_has_a_wrapper() -> None:
-    assert wrappers.wrapper_tools() == sorted(get_backends())
+def test_every_backend_has_a_wrapper_and_structbio_wraps_itself() -> None:
+    assert wrappers.wrapper_tools() == [wrappers.SELF_NAME, *sorted(get_backends())]
+
+
+def test_the_self_wrapper_refuses_to_call_itself(tmp_path: Path) -> None:
+    """Without this guard, a wrapper on PATH ahead of the real command loops."""
+
+    directory = tmp_path / "bin"
+    wrappers.install_wrappers(directory, launch="structbio")
+    script = directory / wrappers.SELF_NAME
+    result = subprocess.run(
+        ["bash", str(script), "--version"],
+        env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 127
+    assert "would loop forever" in result.stderr
+
+
+def test_the_self_wrapper_passes_arguments_straight_through(tmp_path: Path) -> None:
+    directory = tmp_path / "bin"
+    launcher = tmp_path / "fake-structbio"
+    launcher.write_text('#!/usr/bin/env bash\necho "got: $*"\n')
+    launcher.chmod(0o755)
+    wrappers.install_wrappers(directory, launch=str(launcher))
+    result = subprocess.run(
+        ["bash", str(directory / wrappers.SELF_NAME), "detect", "--x"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.stdout.strip() == "got: detect --x"
 
 
 def test_install_writes_executable_wrappers(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -1099,6 +1100,11 @@ def doctor() -> None:
     settings = load_settings()
     gpu = detect_gpu()
     typer.echo("structbio workstation\n")
+    # Name the running installation: several checkouts on one machine is the
+    # usual reason a command is reported as missing.
+    typer.echo(f"{'structbio':<22} {__version__}")
+    typer.echo(f"{'  package':<22} {Path(__file__).resolve().parent}")
+    typer.echo(f"{'  interpreter':<22} {sys.executable}")
     python_found = shutil.which("python") or shutil.which("python3")
     typer.echo(f"{'Python':<22} {'OK' if python_found else 'NOT FOUND'}")
     typer.echo(f"{'Git':<22} {'OK' if shutil.which('git') else 'NOT FOUND'}")
