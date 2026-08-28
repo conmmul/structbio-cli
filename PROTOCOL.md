@@ -361,6 +361,22 @@ before the PyTorch one, so conda often picks a version of PyTorch built without
 graphics-card support. It is a quirk of the upstream file, not a mistake you
 made.
 
+#### When no fix will work
+
+On a recent graphics card you may instead see:
+
+```text
+this machine's GPU is Blackwell, such as the RTX 50 series, which needs CUDA
+12.8 or newer, but RFdiffusion's env/SE3nv.yml pins CUDA 11.1. No PyTorch
+install can bridge that: the pinned version has no kernels for this card
+```
+
+This is not something to keep trying to fix. RFdiffusion pins software from
+2021, which contains no instructions for graphics cards designed after it. Stop
+and speak to whoever runs the workstation: the options are an environment built
+with newer versions, which somebody has to test, or running on an older card.
+Reinstalling will not help, and neither will any command in this guide.
+
 Run the `fix:` line that matches. If you have the tool installed somewhere
 else, `structbio detect` will find it and `structbio setup --update` will record
 it, which is quicker than editing the configuration by hand.

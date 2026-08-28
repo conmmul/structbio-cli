@@ -99,6 +99,7 @@ SE3NV = PinnedEnvironment(
         "pytorch=1.9 cudatoolkit=11.1"
     ),
     note="SE3Transformer in this checkout is built against the pinned version",
+    cuda="11.1",
 )
 
 _HYDRA_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")

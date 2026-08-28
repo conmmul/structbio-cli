@@ -94,6 +94,36 @@ Rebuilding the environment from the file is the alternative. A backend declares
 this by setting `pinned_environment`; without it, a plain PyTorch install is
 offered instead.
 
+### When the GPU is newer than the pinned CUDA
+
+Some mismatches cannot be fixed by installing anything. A PyTorch built against
+an old CUDA contains no machine code for a newer GPU architecture, and fails
+with `no kernel image is available for execution on the device`. structbio
+reads each card's compute capability from `nvidia-smi` and says so outright
+rather than offering a repair that cannot work:
+
+```text
+this machine's GPU is Ada Lovelace, such as the RTX 40 series and L40, which
+needs CUDA 11.8 or newer, but RFdiffusion's env/SE3nv.yml pins CUDA 11.1.
+No PyTorch install can bridge that: the pinned version has no kernels for
+this card
+```
+
+| Architecture | Compute capability | Oldest CUDA that supports it |
+| --- | --- | --- |
+| Ampere datacenter (A100) | 8.0 | 11.0 |
+| Ampere (A6000, RTX 30) | 8.6 | 11.1 |
+| Ada Lovelace (RTX 40, L40) | 8.9 | 11.8 |
+| Hopper (H100) | 9.0 | 11.8 |
+| Blackwell (RTX 50, B-series) | 10.0, 12.0 | 12.8 |
+
+RFdiffusion pins CUDA 11.1 in `env/SE3nv.yml`, and its Dockerfile uses CUDA
+11.6, so **neither supports Ada, Hopper, or Blackwell**. On those cards the
+options are to build an environment with a current PyTorch and a matching DGL,
+which is beyond what this wrapper can promise, or to run on an older card.
+Raise it upstream before assuming the rest of the checkout works against a
+newer PyTorch.
+
 A tool that lives on a shared filesystem is only usable from a machine that
 mounts it. If a tool is installed somewhere structbio does not know about,
 `structbio detect` followed by `structbio setup --update` is quicker than

@@ -161,3 +161,89 @@ def test_a_pinned_environment_is_never_told_to_upgrade(
     assert "cu130" not in joined
     assert "pytorch=1.9 cudatoolkit=11.1" in joined
     assert "SE3Transformer" in joined
+
+
+@pytest.mark.parametrize(
+    ("capability", "cuda", "architecture"),
+    [
+        ((8, 6), (11, 1), "Ampere"),
+        ((8, 9), (11, 8), "Ada Lovelace"),
+        ((9, 0), (11, 8), "Hopper"),
+        ((12, 0), (12, 8), "Blackwell"),
+    ],
+)
+def test_each_architecture_maps_to_the_cuda_it_needs(capability, cuda, architecture) -> None:
+    from structbio.environment import required_cuda
+
+    needed, described = required_cuda(capability)
+    assert needed == cuda
+    assert architecture in described
+
+
+def test_a_gpu_too_new_for_the_pinned_cuda_is_fatal_not_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reinstalling at the pinned version cannot produce kernels for the card."""
+
+    from structbio.tools.rfdiffusion import SE3NV
+
+    prefix = _env_with_torch(tmp_path / "env", CPU_VERSION_FILE)
+    monkeypatch.setattr(environment, "conda_environments", lambda: {"SE3nv": prefix})
+    monkeypatch.setattr(environment, "driver_cuda_version", lambda: (13, 0))
+    monkeypatch.setattr(
+        environment,
+        "detect_gpu",
+        lambda: {"available": True, "models": [], "cuda_driver": "13.0"},
+    )
+    monkeypatch.setattr(environment, "gpu_capabilities", lambda: [(12, 0)])
+
+    problems, warnings, remedies = environment.diagnose_torch("SE3nv", pinned=SE3NV)
+    assert any("no kernels for this card" in problem for problem in problems)
+    assert warnings == []
+    assert any("cannot drive this GPU" in remedy for remedy in remedies)
+    # It must not repeat the repair that cannot work.
+    assert not any("pytorch=1.9 cudatoolkit=11.1" in remedy for remedy in remedies)
+
+
+def test_an_older_gpu_still_gets_the_ordinary_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from structbio.tools.rfdiffusion import SE3NV
+
+    prefix = _env_with_torch(tmp_path / "env", CPU_VERSION_FILE)
+    monkeypatch.setattr(environment, "conda_environments", lambda: {"SE3nv": prefix})
+    monkeypatch.setattr(environment, "driver_cuda_version", lambda: (13, 0))
+    monkeypatch.setattr(
+        environment,
+        "detect_gpu",
+        lambda: {"available": True, "models": [], "cuda_driver": "13.0"},
+    )
+    monkeypatch.setattr(environment, "gpu_capabilities", lambda: [(8, 6)])
+
+    problems, warnings, remedies = environment.diagnose_torch("SE3nv", pinned=SE3NV)
+    assert problems == []
+    assert any("CPU-only build" in warning for warning in warnings)
+    assert any("pytorch=1.9 cudatoolkit=11.1" in remedy for remedy in remedies)
+
+
+def test_an_unpinned_environment_on_a_too_new_gpu_is_told_to_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = _env_with_torch(tmp_path / "env", CUDA_VERSION_FILE)  # built for 12.1
+    monkeypatch.setattr(environment, "conda_environments", lambda: {"mlfold": prefix})
+    monkeypatch.setattr(environment, "driver_cuda_version", lambda: (12, 8))
+    monkeypatch.setattr(
+        environment,
+        "detect_gpu",
+        lambda: {"available": True, "models": [], "cuda_driver": "12.8"},
+    )
+    monkeypatch.setattr(environment, "gpu_capabilities", lambda: [(12, 0)])
+
+    problems, _, remedies = environment.diagnose_torch("mlfold")
+    assert any("no kernels for this machine's GPU" in problem for problem in problems)
+    assert any("whl/cu128" in remedy for remedy in remedies)
+
+
+def test_no_gpu_information_means_no_hardware_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(environment, "gpu_capabilities", list)
+    assert environment.unsupported_by("11.1") is None

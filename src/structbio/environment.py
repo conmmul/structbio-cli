@@ -177,6 +177,7 @@ class PinnedEnvironment:
     pins: str
     repair: str
     note: str
+    cuda: str = ""
 
     def remedies(self, environment: str) -> list[str]:
         return [
@@ -258,6 +259,66 @@ def find_torch(prefix: Path) -> TorchInstall | None:
     return None
 
 
+# The oldest CUDA toolkit that emits code for each GPU architecture. A PyTorch
+# built against an older toolkit has no kernels for the card and fails with
+# "no kernel image is available for execution on the device", which no amount
+# of reinstalling at the same pinned version can fix.
+MINIMUM_CUDA_FOR_CAPABILITY: tuple[tuple[tuple[int, int], tuple[int, int], str], ...] = (
+    ((12, 0), (12, 8), "Blackwell, such as the RTX 50 series"),
+    ((10, 0), (12, 8), "Blackwell datacenter"),
+    ((9, 0), (11, 8), "Hopper"),
+    ((8, 9), (11, 8), "Ada Lovelace, such as the RTX 40 series and L40"),
+    ((8, 6), (11, 1), "Ampere"),
+    ((8, 0), (11, 0), "Ampere datacenter"),
+)
+
+
+def gpu_capabilities() -> list[tuple[int, int]]:
+    """Each GPU's compute capability, as nvidia-smi reports it."""
+
+    output = command_output(
+        ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+        only_on_success=True,
+    )
+    if not output:
+        return []
+    capabilities: list[tuple[int, int]] = []
+    for line in output.splitlines():
+        match = re.match(r"\s*(\d+)\.(\d+)", line)
+        if match:
+            capabilities.append((int(match.group(1)), int(match.group(2))))
+    return capabilities
+
+
+def required_cuda(capability: tuple[int, int]) -> tuple[tuple[int, int], str] | None:
+    """The oldest CUDA that supports a compute capability, and its architecture."""
+
+    for supported, cuda, architecture in MINIMUM_CUDA_FOR_CAPABILITY:
+        if capability >= supported:
+            return cuda, architecture
+    return None
+
+
+def unsupported_by(cuda: str | tuple[int, int]) -> tuple[tuple[int, int], str] | None:
+    """Return the GPU requirement a given CUDA version cannot meet, if any.
+
+    Checks the newest card in the machine: if a CUDA build cannot address it,
+    that card sits idle or the run fails outright.
+    """
+
+    built = (
+        tuple(int(part) for part in cuda.split(".")[:2]) if isinstance(cuda, str) else cuda
+    )
+    capabilities = gpu_capabilities()
+    if not capabilities:
+        return None
+    requirement = required_cuda(max(capabilities))
+    if requirement is None:
+        return None
+    needed, architecture = requirement
+    return (needed, architecture) if built < needed else None
+
+
 def diagnose_torch(
     environment: str, *, pinned: PinnedEnvironment | None = None
 ) -> tuple[list[str], list[str], list[str]]:
@@ -287,6 +348,24 @@ def diagnose_torch(
         return problems, warnings, remedies
 
     gpu_present = bool(detect_gpu()["available"])
+    if pinned and pinned.cuda and gpu_present:
+        blocked = unsupported_by(pinned.cuda)
+        if blocked is not None:
+            needed, architecture = blocked
+            problems.append(
+                f"this machine's GPU is {architecture}, which needs CUDA "
+                f"{needed[0]}.{needed[1]} or newer, but {pinned.file} pins CUDA "
+                f"{pinned.cuda}. No PyTorch install can bridge that: the pinned "
+                "version has no kernels for this card"
+            )
+            remedies.append(
+                "the pinned environment cannot drive this GPU. Build one with a "
+                "current PyTorch and a matching DGL, or run the tool on an older "
+                "card. Ask upstream before assuming the rest of the checkout "
+                "works against a newer PyTorch"
+            )
+            return problems, warnings, remedies
+
     if torch.cpu_only and gpu_present:
         warnings.append(
             f"PyTorch {torch.version} in {environment!r} is a CPU-only build, so this "
@@ -298,6 +377,16 @@ def diagnose_torch(
             else [f"structbio fix-env --force, or run: {upgrade}"]
         )
     elif torch.cuda and driver:
+        blocked = unsupported_by(torch.cuda)
+        if blocked is not None:
+            needed, architecture = blocked
+            problems.append(
+                f"PyTorch {torch.version} in {environment!r} was built for CUDA "
+                f"{torch.cuda}, which has no kernels for this machine's GPU "
+                f"({architecture}, needing CUDA {needed[0]}.{needed[1]} or newer)"
+            )
+            remedies.append(f"structbio fix-env --force, or run: {upgrade}")
+            return problems, warnings, remedies
         built = tuple(int(part) for part in torch.cuda.split(".")[:2])
         if built > driver:
             problems.append(
