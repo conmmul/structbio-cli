@@ -233,3 +233,24 @@ def test_version_flag_reports_the_package_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0, result.output
     assert result.output.strip() == __version__
+
+
+def test_setup_says_loudly_when_the_commands_are_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(tmp_path / "config.yaml"))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    bin_dir = tmp_path / "bin"
+
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    missing = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
+    assert missing.exit_code == 0, missing.output
+    assert "will NOT work yet" in missing.output
+    assert f'export PATH="{bin_dir.resolve()}:$PATH"' in missing.output
+    assert "~/.zshrc" in missing.output
+
+    monkeypatch.setenv("PATH", f"{bin_dir.resolve()}:/usr/bin:/bin")
+    present = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
+    assert present.exit_code == 0, present.output
+    assert "will NOT work yet" not in present.output

@@ -663,13 +663,26 @@ def setup(
 
     for path, state in wrappers.install_wrappers(bin_dir):
         typer.echo(f"{state:<32} {path}")
-    resolved = bin_dir.expanduser().resolve()
-    if str(resolved) not in os.environ.get("PATH", "").split(os.pathsep):
-        typer.echo(
-            f"\n{resolved} is not on PATH yet. Add this line to your shell profile:\n"
-            f'  export PATH="{resolved}:$PATH"'
-        )
     typer.echo("\nThen check the installation with: structbio doctor")
+    _warn_about_path(bin_dir)
+
+
+def _warn_about_path(bin_dir: Path) -> None:
+    """Say so, unmissably, when the tool commands cannot be found by name."""
+
+    resolved = bin_dir.expanduser().resolve()
+    if str(resolved) in os.environ.get("PATH", "").split(os.pathsep):
+        return
+    profile = "~/.zshrc" if os.environ.get("SHELL", "").endswith("zsh") else "~/.bashrc"
+    typer.echo(
+        f"\n{'=' * 72}\n"
+        f"The tool commands will NOT work yet: {resolved} is not on your PATH,\n"
+        f"so your shell cannot find {', '.join(wrappers.wrapper_tools())}.\n\n"
+        f"Fix it with:\n"
+        f'  echo \'export PATH="{resolved}:$PATH"\' >> {profile}\n'
+        f"  source {profile}\n"
+        f"{'=' * 72}"
+    )
 
 
 @app.command("install-wrappers")
@@ -685,6 +698,7 @@ def install_wrappers_command(
 
     for path, state in wrappers.install_wrappers(bin_dir, force=force):
         typer.echo(f"{state:<32} {path}")
+    _warn_about_path(bin_dir)
 
 
 @app.command("shell-init")

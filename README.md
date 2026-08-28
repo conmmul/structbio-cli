@@ -34,6 +34,14 @@ wrappers: `rfdiffusion ...` is exactly `structbio rfdiffusion ...`. The same
 wrappers are checked into [`bin/`](bin) if you would rather copy them into a
 shared directory yourself.
 
+If `setup` reports that `~/.local/bin` is not on your PATH, do what it says
+before going further, or the shell will not find the commands:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
 Edit the configuration so every path points at software that is already
 installed on the workstation:
 

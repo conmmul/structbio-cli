@@ -30,7 +30,10 @@ environment does not have to be activated first. Re-run
 eval "$(structbio shell-init)"
 ```
 
-Add that line to `~/.zshrc` or `~/.bashrc` to make it permanent. To place the
+Add that line to `~/.zshrc` or `~/.bashrc` to make it permanent; a fresh macOS
+account does not have `~/.local/bin` on PATH, so this step is usually needed.
+`structbio setup` checks and prints the exact line if it is missing. Until it is
+done, `rfdiffusion` reports `command not found` even though the wrapper exists. To place the
 commands somewhere else, such as a shared directory for the whole lab, pass
 `--bin-dir`:
 
