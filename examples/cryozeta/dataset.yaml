@@ -1,0 +1,17 @@
+tool: cryozeta
+
+experiment:
+  name: cryozeta_dataset
+
+# CryoZeta's native JSON schema is versioned by CryoZeta itself.
+input:
+  json: /absolute/path/to/cryozeta_input.json
+
+mode: combined
+pixi_environment: default
+
+resources:
+  gpus: 1
+  cpus: 8
+  memory: 64G
+  time: 04:00:00

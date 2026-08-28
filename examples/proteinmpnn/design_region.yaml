@@ -1,0 +1,23 @@
+tool: proteinmpnn
+
+experiment:
+  name: design_region
+
+input:
+  pdb: /absolute/path/to/7KDP.pdb
+
+design:
+  chains: [A]
+  designable_positions: ["A:697-749"]
+  num_sequences: 8
+  temperatures: [0.1, 0.2]
+  batch_size: 1
+  soluble_model: false
+
+constraints:
+  omit_aas: X
+  bias_aas:
+    A: -0.1
+
+resources:
+  gpus: 1

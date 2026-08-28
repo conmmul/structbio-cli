@@ -1,0 +1,28 @@
+tool: rfdiffusion
+
+experiment:
+  name: tetra600
+
+input:
+  pdb: null
+
+design:
+  mode: symmetry
+  symmetry: tetrahedral
+  length: 600
+  num_designs: 20
+
+potentials:
+  olig_contacts:
+    weight_intra: 1.0
+    weight_inter: 0.05
+
+diffusion:
+  guide_scale: 0.5
+  guide_decay: quadratic
+
+resources:
+  gpus: 1
+  cpus: 8
+  memory: 32G
+  time: 04:00:00

@@ -1,0 +1,25 @@
+tools:
+  rfdiffusion:
+    environment: SE3nv
+    manager: conda
+    path: /work/software/RFdiffusion
+    executable: scripts/run_inference.py
+  proteinmpnn:
+    environment: SE3nv
+    manager: conda
+    path: /work/software/ProteinMPNN
+    executable: protein_mpnn_run.py
+  cryozeta:
+    environment: default
+    manager: pixi
+    path: /work/software/CryoZeta
+    executable: inference_demo.sh
+
+cluster_profiles:
+  lab_gpu:
+    partition: gpu
+    nodes: 1
+    gpus: 1
+    cpus: 16
+    memory: 64G
+    time: 04:00:00
