@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from structbio.config import ToolInstallation
-from structbio.environment import executable_path
+from structbio.environment import executable_path, git_commit
 from structbio.tools.rfdiffusion import RFDiffusionBackend
 
 
@@ -18,3 +18,8 @@ def test_environment_detection_from_configured_path(tmp_path: Path) -> None:
     check = RFDiffusionBackend().check_environment(installation)
     assert check.configured
     assert check.found
+
+
+def test_git_commit_is_none_outside_a_checkout(tmp_path: Path) -> None:
+    assert git_commit(tmp_path) is None
+    assert git_commit(Path(__file__).resolve().parents[1]) is not None

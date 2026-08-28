@@ -17,7 +17,7 @@ Configure it as follows:
 ```yaml
 tools:
   cryozeta:
-    path: /work/software/CryoZeta
+    path: ~/software/CryoZeta
     executable: inference_demo.sh
     manager: pixi
     environment: default
@@ -70,11 +70,24 @@ RNA inputs require the upstream MSA fields/files; DNA handling differs. The
 wrapper verifies required top-level fields and the map path, but upstream
 CryoZeta remains responsible for full sequence/MSA schema validation.
 
-Use absolute map and MSA paths for HPC work so their meaning is the same on the
-login and compute nodes. Raw maps and MSA directories are never modified by
+Use absolute map and MSA paths so their meaning does not depend on the directory
+the command was typed in. Raw maps and MSA directories are never modified by
 `structbio`.
 
-## 2. Prepare the wrapper YAML
+## 2. Run it, or prepare a wrapper YAML
+
+For the standard pipeline the quick command is enough:
+
+```bash
+cryozeta predict my_target.json my_maps --mode combined --gpu 0
+```
+
+The arguments are the native JSON and the output folder. `--gpu` is passed to the
+upstream script as its own GPU selection rather than through
+`CUDA_VISIBLE_DEVICES`. Checkpoint overrides and an explicit Pixi environment
+need the YAML form below.
+
+
 
 ```yaml
 tool: cryozeta
@@ -83,17 +96,13 @@ experiment:
   name: my_target_cryozeta
 
 input:
-  json: /work/project/config/my_target.json
+  json: ~/project/config/my_target.json
 
 mode: combined
 pixi_environment: default
 
 resources:
-  cluster: lab_gpu
   gpus: 1
-  cpus: 8
-  memory: 64G
-  time: 04:00:00
 ```
 
 The supported modes map directly to the verified upstream script:
@@ -116,16 +125,14 @@ Validation checks that the native JSON parses, contains at least one target,
 has the required top-level fields, and references an existing map. It does not
 load a model, compile CUDA code, or run inference.
 
-## 4. Run locally or submit to SLURM
+## 4. Run it
 
 ```bash
-# Local/current allocation:
 structbio cryozeta run cryozeta.yaml
-
-# SLURM preview and explicit submission:
-structbio cryozeta submit cryozeta.yaml --dry-run
-structbio cryozeta submit cryozeta.yaml --execute
 ```
+
+On a shared cluster, `structbio cryozeta submit` writes a SLURM script instead;
+see [the optional cluster guide](cluster.md).
 
 If the upstream Pixi environment should be selected explicitly, use
 `pixi_environment`. Optional local GPU IDs and checkpoint overrides are also
@@ -134,13 +141,13 @@ available:
 ```yaml
 pixi_environment: cu11
 gpu_ids: [0]
-checkpoint: /work/software/CryoZeta/assets/custom.safetensors
-interpolation_checkpoint: /work/software/CryoZeta/assets/custom-interpolate.safetensors
+checkpoint: ~/software/CryoZeta/assets/custom.safetensors
+interpolation_checkpoint: ~/software/CryoZeta/assets/custom-interpolate.safetensors
 ```
 
-Normally omit `gpu_ids` under SLURM and allow the allocation to expose the
-assigned GPU. Only set checkpoint overrides when they are compatible with the
-installed CryoZeta interface and model.
+`gpu_ids` selects cards on a workstation; omit it under a scheduler and let the
+allocation expose the assigned GPU. Only set checkpoint overrides when they are
+compatible with the installed CryoZeta interface and model.
 
 ## Main YAML fields
 
@@ -152,11 +159,12 @@ installed CryoZeta interface and model.
 | `gpu_ids` | Optional explicit local GPU indices passed to the upstream script. |
 | `checkpoint` | Optional standard-model checkpoint override. |
 | `interpolation_checkpoint` | Optional interpolated-model checkpoint override. |
-| `resources` | Local/SLURM resource request recorded with the experiment. |
+| `resources` | Resource request recorded with the experiment, and used only by `submit`. |
 
 ## Outputs and limitations
 
-The upstream pipeline writes below `EXPERIMENT/outputs/`. In combined mode, the
+The upstream pipeline writes into the output folder a quick command names, or
+below `EXPERIMENT/outputs/` for a YAML run. In combined mode, the
 important upstream directories normally include detection output, standard and
 interpolated predictions, and final combined selections. Consult the installed
 CryoZeta documentation for exact filenames and ranking metrics.

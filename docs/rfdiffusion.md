@@ -7,12 +7,12 @@ not run sequence design; RFdiffusion outputs designed backbones.
 
 ## Before the first run
 
-Confirm the installation in the lab or user configuration:
+Confirm the installation in the user configuration:
 
 ```yaml
 tools:
   rfdiffusion:
-    path: /work/software/RFdiffusion
+    path: ~/software/RFdiffusion
     executable: scripts/run_inference.py
     manager: conda
     environment: SE3nv
@@ -28,29 +28,50 @@ structbio rfdiffusion command examples/rfdiffusion/tetrahedral.yaml
 The RFdiffusion checkout, environment, model weights, and CUDA-compatible PyTorch
 must already be installed according to the upstream project.
 
-## Recommended command sequence
+## Quick commands
+
+Four run types need nothing but positional arguments. The last argument is the
+output folder, and its name becomes the file prefix inside it.
+
+```bash
+rfdiffusion monomer 150 my_monomers -n 10
+rfdiffusion symmetry c4 400 my_tetramers -n 20
+rfdiffusion binder target.pdb 100 my_binders --chain B --hotspots B30,B33
+rfdiffusion partial start.pdb 10 my_variants -n 20
+```
+
+Add `--gpu 1` to pick a card, `--dry-run` to see the Hydra command without
+running it, and `--set` for anything the short form does not expose, such as
+`--set diffusion.timesteps=50`.
+
+`monomer` needs only a per-design length. `symmetry` takes the **total** length
+across every subunit and rejects a length that the subunit count does not
+divide: `c4` needs a multiple of 4, `d3` a multiple of 6, `tetrahedral` a
+multiple of 12.
+
+`binder` reads the target contig from the residue numbering in the target file,
+including breaks in that numbering, so `B10-58/B70-120/0 100-100` is produced
+for you. Give `--chain` whenever the file has more than one chain. Hotspots are
+checked against the file before RFdiffusion starts.
+
+`partial` keeps every chain of the input at its own length and re-diffuses it for
+the given number of steps; fewer steps stay closer to the input.
+
+Motif scaffolding, inpainting, guiding potentials, and hand-written contigs are
+YAML-only; the rest of this guide covers them.
+
+## Recommended YAML command sequence
 
 ```bash
 structbio rfdiffusion validate design.yaml
 structbio rfdiffusion command design.yaml
 structbio rfdiffusion run design.yaml --dry-run
-```
-
-After reviewing all three outputs, choose one execution path:
-
-```bash
-# Run in the current shell and wait for completion.
 structbio rfdiffusion run design.yaml
-
-# Or preview and explicitly submit a SLURM job.
-structbio rfdiffusion submit design.yaml --dry-run
-structbio rfdiffusion submit design.yaml --execute
 ```
 
-Each invocation without `--dry-run` creates a new experiment. Running
-`submit design.yaml` without `--execute` prepares `job.slurm` but does not submit
-it. A later `submit design.yaml --execute` creates another experiment; it does
-not reuse the previously prepared directory.
+Each invocation without `--dry-run` creates a new dated experiment folder under
+`experiments_root`. On a shared cluster, `structbio rfdiffusion submit` writes a
+SLURM script instead; see [the optional cluster guide](cluster.md).
 
 ## Minimal unconditional monomer
 

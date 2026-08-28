@@ -12,33 +12,53 @@ cd structbio-cli
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-structbio --help
+structbio setup
 ```
 
 An editable installation is useful for a shared lab checkout because pulling an
-update immediately updates the installed command. Keep the virtual environment
-activated when using `structbio`, or call `.venv/bin/structbio` directly.
+update immediately updates the installed command.
+
+`structbio setup` also writes one short command per tool into `~/.local/bin`, so
+`rfdiffusion monomer 150 my_monomers` works from any directory. Each of those
+files is a five-line shell wrapper around `structbio`, and it records the
+absolute path of the interpreter it was generated from, so the virtual
+environment does not have to be activated first. Re-run
+`structbio install-wrappers` after moving or rebuilding the environment. If
+`~/.local/bin` is not on your PATH yet:
+
+```bash
+eval "$(structbio shell-init)"
+```
+
+Add that line to `~/.zshrc` or `~/.bashrc` to make it permanent. To place the
+commands somewhere else, such as a shared directory for the whole lab, pass
+`--bin-dir`:
+
+```bash
+structbio install-wrappers --bin-dir /usr/local/structbio/bin
+```
 
 ## 2. Configure installed scientific tools
 
-Put per-user installation paths in `~/.config/structbio/config.yaml`:
+`structbio setup` creates `~/.config/structbio/config.yaml` from a template.
+Edit it so every path points at software already installed on this machine:
 
 ```yaml
 tools:
   rfdiffusion:
-    path: /work/software/RFdiffusion
+    path: ~/software/RFdiffusion
     executable: scripts/run_inference.py
     manager: conda
     environment: SE3nv
 
   proteinmpnn:
-    path: /work/software/ProteinMPNN
+    path: ~/software/ProteinMPNN
     executable: protein_mpnn_run.py
     manager: conda
     environment: proteinmpnn
 
   cryozeta:
-    path: /work/software/CryoZeta
+    path: ~/software/CryoZeta
     executable: inference_demo.sh
     manager: pixi
     environment: default
@@ -48,7 +68,7 @@ Field meanings:
 
 | Field | Meaning |
 | --- | --- |
-| `path` | Absolute path to the root of the upstream tool checkout. |
+| `path` | Path to the root of the upstream tool checkout; `~` is expanded. |
 | `executable` | Executable or script path, relative to `path`. |
 | `manager` | `conda`, `pixi`, or `none`. |
 | `environment` | Conda/Pixi environment name used by that installation. |
@@ -67,17 +87,17 @@ export STRUCTBIO_LAB_CONFIG=/work/lab/config/structbio.yaml
 ```
 
 Users can still override selected values in their own
-`~/.config/structbio/config.yaml`. See `examples/lab-config.yaml` for tool and
-cluster-profile settings in one file.
+`~/.config/structbio/config.yaml`. See `examples/lab-config.yaml` for tool
+settings in one file.
 
 ## 4. Verify the machine
 
-Run these commands on the workstation or cluster login node where jobs will be
-prepared:
+Run these commands on the workstation where the tools will run:
 
 ```bash
 structbio doctor
 structbio tools
+structbio config
 ```
 
 For each wrapped tool, verify that:
@@ -87,11 +107,10 @@ For each wrapped tool, verify that:
 - Conda or Pixi is available as appropriate;
 - model weights and upstream dependencies were installed according to the
   scientific tool's own documentation;
-- input and output paths will also be visible from compute nodes.
+- a GPU is visible, if the tool needs one.
 
-`doctor` does not treat missing optional tools, GPUs, or SLURM as fatal. For
-example, a login node may legitimately report no CUDA device even though its
-submitted compute jobs receive GPUs.
+`doctor` does not treat missing optional tools as fatal, and it reports SLURM
+only as an optional extra: nothing in a workstation run needs it.
 
 Do not install RFdiffusion, ProteinMPNN, or CryoZeta merely by installing this
 package. Follow each upstream project's instructions and license terms.

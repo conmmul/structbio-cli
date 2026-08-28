@@ -1,15 +1,17 @@
 # Troubleshooting
 
-Start with `structbio doctor`, then inspect the generated command using
-`structbio TOOL command CONFIG.yaml`.
+Start with `structbio doctor`, then re-run the command with `--dry-run` to see
+exactly what would be executed.
 
 ## Installation diagnostics
 
 ### NOT CONFIGURED
 
-Add the tool path, executable, manager, and environment to the lab or user
-configuration. Confirm that `path/executable` names the actual installed script,
-not an example command from another checkout version.
+Add the tool path, executable, manager, and environment to the user
+configuration; `structbio config` prints which file is in use, and
+`structbio setup` creates it from a template. Confirm that `path/executable`
+names the actual installed script, not an example command from another checkout
+version.
 
 ### CONFIGURED, UNAVAILABLE
 
@@ -22,26 +24,25 @@ conda env list
 pixi --version
 ```
 
-Only run commands that apply to the configured manager. A tool can be available
-on a compute node even if it is unavailable on a laptop; prepare the run on the
-host that has access to the shared installation.
+Only run commands that apply to the configured manager. A tool that lives on a
+shared filesystem is only usable from a machine that mounts it.
 
 ## Configuration errors
 
 ### A relative input path points to the wrong file
 
-Experiment input paths are resolved relative to the experiment YAML. Keep input
-files near a project-specific YAML or use an absolute shared-filesystem path.
-The experiments output root, by contrast, defaults to `./experiments` relative
-to the directory where `structbio` is invoked.
+Paths typed on the command line are resolved relative to the current directory,
+which is normally what you want. Paths inside a YAML file are resolved relative
+to that file, so keep input files near a project-specific YAML or use absolute
+paths.
 
 ### A temporary change should not be saved in YAML
 
 Use a typed command-line override:
 
 ```bash
+rfdiffusion monomer 150 my_monomers --set diffusion.timesteps=50
 structbio rfdiffusion command design.yaml --set design.num_designs=2
-structbio proteinmpnn run mpnn.yaml --dry-run --set resources.gpus=1
 ```
 
 The value after `=` is parsed as YAML, so numbers and booleans retain their
@@ -77,13 +78,26 @@ invert the selection manually or renumber the raw PDB to satisfy the wrapper.
 ## CryoZeta errors
 
 - Validate the native input JSON against the installed CryoZeta version.
-- Prefer absolute map and MSA paths that are visible on compute nodes.
+- Prefer absolute map and MSA paths so they do not depend on the current
+  directory.
 - Confirm Pixi assets, checkpoints, CUDA toolchain, and compiler cache locations.
 - The standard wrapped pipeline is single-GPU; requesting extra GPUs does not
   parallelize it.
 - Large-complex mode is not currently wrapped.
 
-## Experiment and SLURM behavior
+## Output folders and experiments
+
+### Refusing to write into an existing non-empty folder
+
+A quick command writes results into the folder you name and will not write over
+anything already there. Choose a new name, or delete the old folder yourself
+after checking what is in it.
+
+### Where a run recorded what it did
+
+`OUTPUT/.structbio/` for a quick command, and the experiment directory for a
+YAML run. Either way, `structbio status FOLDER` prints the summary and
+`command.txt` holds the exact command.
 
 ### An experiment name already exists
 
@@ -98,8 +112,9 @@ This is the safe default. `submit CONFIG.yaml` writes `job.slurm` and stops. Use
 
 ### SLURM is unavailable
 
-Generate and inspect scripts on a workstation or login node. Actual submission
-requires a host with `sbatch`. Live status requires `squeue`.
+Nothing on a workstation needs it. `submit` exists only for shared clusters:
+generating a script needs nothing, submitting it needs `sbatch`, and live status
+needs `squeue`. See [the optional cluster guide](cluster.md).
 
 ### A completed or failed job is absent from `squeue`
 

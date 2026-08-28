@@ -1,7 +1,14 @@
 from datetime import datetime
 from pathlib import Path
 
-from structbio.experiment import ExperimentManager, write_records
+import pytest
+
+from structbio.experiment import (
+    ExperimentManager,
+    prepare_output_dir,
+    read_metadata,
+    write_records,
+)
 
 
 def test_output_directory_collision_never_overwrites(tmp_path: Path) -> None:
@@ -43,3 +50,42 @@ def test_reproducibility_records_include_inputs_outputs_and_command(tmp_path: Pa
     assert metadata["python_version"]
     assert paths.command.read_text() == "python tool.py --safe\n"
     assert input_path.read_text() == "RAW"
+
+
+def test_output_folder_keeps_results_at_the_top_level(tmp_path: Path) -> None:
+    paths = prepare_output_dir(tmp_path / "my_designs")
+    assert paths.outputs == tmp_path / "my_designs"
+    assert paths.metadata.parent == tmp_path / "my_designs" / ".structbio"
+    assert paths.inputs.is_dir()
+    assert paths.stdout.is_file()
+
+
+def test_output_folder_refuses_to_write_over_results(tmp_path: Path) -> None:
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    (occupied / "design_0.pdb").write_text("ATOM")
+    with pytest.raises(ValueError, match="non-empty folder"):
+        prepare_output_dir(occupied)
+    assert (occupied / "design_0.pdb").read_text() == "ATOM"
+
+    plain_file = tmp_path / "already-a-file"
+    plain_file.write_text("data")
+    with pytest.raises(ValueError, match="not a folder"):
+        prepare_output_dir(plain_file)
+
+
+def test_output_folder_records_are_readable(tmp_path: Path) -> None:
+    paths = prepare_output_dir(tmp_path / "run")
+    write_records(
+        paths,
+        config={"tool": "test"},
+        command="python tool.py",
+        tool_name="test",
+        tool_path=None,
+        input_paths=[],
+        status="prepared",
+    )
+    metadata = read_metadata(tmp_path / "run")
+    assert metadata is not None
+    assert metadata["tool"] == "test"
+    assert read_metadata(tmp_path) is None

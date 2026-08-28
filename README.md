@@ -1,12 +1,21 @@
 # structbio
 
-`structbio` is a shared command-line interface for scientific software that is
-not currently covered by the lab's SBGrid CLI. It is designed for researchers
-who usually run these programs on HPC systems rather than local workstations.
-Compared with thin Colab interfaces, it provides more control, reproducible
-configuration, explicit resource requests, and persistent run records. It wraps
-existing installations rather than reimplementing the scientific programs, and
-additional wrappers can be added over time.
+`structbio` gives structural-biology software the same kind of short, uniform
+commands that SBGrid gives its own tools, for programs the lab's SBGrid CLI does
+not cover. It is built for the GPU workstations in the lab: you name the run
+type, a size, and an output folder, and the results appear in that folder.
+
+```bash
+rfdiffusion monomer 150 my_monomers -n 10
+rfdiffusion binder target.pdb 100 my_binders --chain B --hotspots B30,B33
+proteinmpnn design 7kdp.pdb 8 my_sequences --designable A:697-749
+cryozeta predict targets.json my_maps --gpu 0
+```
+
+Each command wraps an existing installation instead of reimplementing the
+science, checks the request against the actual input structure before anything
+runs, and records exactly what was executed next to the results. More wrappers
+can be added over time.
 
 ## First-time setup
 
@@ -16,150 +25,157 @@ Python 3.10 or newer is required. From a clone of this repository:
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-structbio doctor
+structbio setup
 ```
 
-Create `~/.config/structbio/config.yaml`:
+`structbio setup` writes `~/.config/structbio/config.yaml` and installs one
+short shell command per tool into `~/.local/bin`. Those commands are tiny
+wrappers: `rfdiffusion ...` is exactly `structbio rfdiffusion ...`. The same
+wrappers are checked into [`bin/`](bin) if you would rather copy them into a
+shared directory yourself.
+
+Edit the configuration so every path points at software that is already
+installed on the workstation:
 
 ```yaml
 tools:
   rfdiffusion:
-    environment: SE3nv
-    manager: conda
-    path: /work/software/RFdiffusion
+    path: ~/software/RFdiffusion
     executable: scripts/run_inference.py
-  proteinmpnn:
-    environment: SE3nv
     manager: conda
-    path: /work/software/ProteinMPNN
+    environment: SE3nv
+  proteinmpnn:
+    path: ~/software/ProteinMPNN
     executable: protein_mpnn_run.py
-  cryozeta:
-    environment: default
-    manager: pixi
-    path: /work/software/CryoZeta
-    executable: inference_demo.sh
+    manager: conda
+    environment: mlfold
 ```
 
-The configured `path` is the root of the upstream tool checkout, and
-`executable` is relative to that root. `structbio` does not install model
-weights or the scientific tools themselves.
+`path` is the root of the upstream checkout and `executable` is relative to it.
+`structbio` never installs the scientific software or its model weights.
 
-Check the setup before preparing a run:
+Then confirm what the workstation can reach:
 
 ```bash
 structbio doctor
 structbio tools
+structbio config
 ```
 
-`doctor` reports missing optional software without failing. A wrapped tool is
-ready only when it is shown as configured and available on the machine where
-the command will run.
+A tool is ready only when `doctor` reports it as `FOUND`.
 
-## Running a wrapper safely
+## Quick commands
 
-Use the same review sequence for every scientific tool:
+The last argument is always the output folder, and its name becomes the prefix
+of the files inside it, so `rfdiffusion monomer 150 my_monomers` writes
+`my_monomers/my_monomers_0.pdb` and so on.
 
-1. Copy the closest YAML file from `examples/` into your own working directory.
-2. Edit the experiment name, input paths, design settings, and resources.
-3. Validate the YAML and all referenced structure selections.
-4. Print and review the exact upstream command.
-5. Perform a dry run to review the experiment and output paths.
-6. Run locally, or generate and explicitly submit a SLURM script.
+| Command | What it does |
+| --- | --- |
+| `rfdiffusion monomer LENGTH OUTPUT` | Unconditional monomer backbones |
+| `rfdiffusion symmetry GROUP TOTAL_LENGTH OUTPUT` | Symmetric oligomers (`c4`, `d3`, `tetrahedral`) |
+| `rfdiffusion binder TARGET.pdb LENGTH OUTPUT` | Binders against a target chain |
+| `rfdiffusion partial INPUT.pdb STEPS OUTPUT` | Diversify an existing structure |
+| `proteinmpnn design INPUT NUM_SEQUENCES OUTPUT` | Sequences for a PDB, or a folder of PDBs |
+| `cryozeta predict TARGETS.json OUTPUT` | CryoZeta inference on its own target JSON |
 
-For RFdiffusion:
+Options shared by every quick command:
 
-```bash
-cp examples/rfdiffusion/tetrahedral.yaml tetrahedral.yaml
-structbio rfdiffusion validate tetrahedral.yaml
-structbio rfdiffusion command tetrahedral.yaml
-structbio rfdiffusion run tetrahedral.yaml --dry-run
-structbio rfdiffusion run tetrahedral.yaml
+- `-n, --num` designs to produce (RFdiffusion).
+- `--gpu 0` or `--gpu 0,1` picks the GPU on this workstation.
+- `--dry-run` prints the exact upstream command and creates nothing.
+- `--set dotted.key=value` reaches any option the short form does not expose,
+  for example `--set diffusion.timesteps=50`.
+
+Run `rfdiffusion --help`, or `rfdiffusion binder --help`, for the full list.
+
+Two things are always checked before a tool starts. Residue selections and
+hotspots must exist in the input structure, and the output folder must be new or
+empty: `structbio` never writes over previous results.
+
+### Worth knowing per tool
+
+`rfdiffusion binder` reads the target contig out of the residue numbering in the
+file itself, so you only give it a chain. Name the chain with `--chain` whenever
+the file holds more than one.
+
+`rfdiffusion symmetry` takes the total length across all subunits, and refuses a
+length that does not divide by the subunit count.
+
+`proteinmpnn design` lets every residue of the selected chains change unless you
+restrict it with `--designable`, and it prints the mutable and fixed residues,
+in the original PDB numbering, before it runs.
+
+## Results and provenance
+
+```text
+my_monomers/
+├── my_monomers_0.pdb      # wrapped tool output, at the top level
+├── my_monomers_1.pdb
+└── .structbio/            # what produced them
+    ├── config.yaml        # fully merged configuration
+    ├── command.txt        # exact command that ran
+    ├── metadata.json      # tool, host, versions, commits, inputs, outputs
+    ├── environment.txt    # Python, Conda, CUDA, and GPU environment
+    ├── stdout.log
+    └── stderr.log
 ```
 
-For ProteinMPNN, always inspect the mutation mask before the dry run:
+`structbio status my_monomers` prints that record back.
+
+## Full control with YAML
+
+Quick commands cover the common runs. Everything the wrapped tools document —
+motif scaffolding, guiding potentials, per-position biases, batching — lives in
+a YAML configuration instead:
 
 ```bash
-cp examples/proteinmpnn/design_region.yaml mpnn.yaml
-# Edit input.pdb and the requested chains/residues first.
-structbio proteinmpnn validate mpnn.yaml
+cp examples/rfdiffusion/tetrahedral.yaml tetra.yaml
+structbio rfdiffusion validate tetra.yaml     # check the YAML and the selections
+structbio rfdiffusion command tetra.yaml      # print the upstream command
+structbio rfdiffusion run tetra.yaml --dry-run
+structbio rfdiffusion run tetra.yaml
+```
+
+For ProteinMPNN, review the mutation mask first:
+
+```bash
 structbio proteinmpnn inspect-mask mpnn.yaml
-structbio proteinmpnn command mpnn.yaml
-structbio proteinmpnn run mpnn.yaml --dry-run
-structbio proteinmpnn run mpnn.yaml
 ```
 
-For CryoZeta, prepare its native JSON first and point the wrapper YAML at it:
-
-```bash
-cp examples/cryozeta/dataset.yaml cryozeta.yaml
-structbio cryozeta validate cryozeta.yaml
-structbio cryozeta command cryozeta.yaml
-structbio cryozeta run cryozeta.yaml --dry-run
-structbio cryozeta run cryozeta.yaml
-```
-
-Remove `--dry-run` only after reviewing the command and output location. Every
-real run receives a new directory below `experiments/`; an existing experiment
-is never overwritten.
+A YAML run writes to a dated folder under `experiments_root` rather than to a
+folder you name, and `structbio status` lists those runs.
 
 ## What each command does
 
-| Command | Creates an experiment? | Runs science software? | Submits a job? |
-| --- | --- | --- | --- |
-| `structbio validate CONFIG.yaml` | no | no | no |
-| `structbio TOOL validate CONFIG.yaml` | no | no | no |
-| `structbio TOOL command CONFIG.yaml` | no | no | no |
-| `structbio TOOL run CONFIG.yaml --dry-run` | no | no | no |
-| `structbio TOOL run CONFIG.yaml` | yes | yes | no |
-| `structbio TOOL submit CONFIG.yaml --dry-run` | no | no | no |
-| `structbio TOOL submit CONFIG.yaml` | yes | no | no |
-| `structbio TOOL submit CONFIG.yaml --execute` | yes | no locally | yes |
-| `structbio proteinmpnn inspect-mask CONFIG.yaml` | no | no | no |
-| `structbio status [EXPERIMENT_ID]` | no | no | no |
-| `structbio tools` / `structbio doctor` | no | no | no |
-
-`submit` writes a SLURM script but does not call `sbatch` unless `--execute` is
-also given. This makes command generation safe on login nodes and in tests.
-Use repeatable `--set dotted.key=value` options for temporary overrides, for
-example `--set resources.gpus=4 --set design.num_designs=100`.
-
-## Finding the results
-
-A real run or prepared submission creates a directory such as:
-
-```text
-experiments/tetra600_2026-08-28_001/
-├── config.yaml       # fully merged configuration used for the run
-├── command.txt       # exact wrapped command
-├── metadata.json     # tool, host, versions, inputs, outputs, and job information
-├── environment.txt   # Python, Conda, CUDA, GPU, and SLURM environment
-├── stdout.log
-├── stderr.log
-├── job.slurm         # present for prepared/submitted SLURM jobs
-├── inputs/           # generated sidecar files; raw source data is not changed
-├── outputs/          # wrapped tool output
-└── analysis/         # reserved for downstream analysis
-```
-
-Use `structbio status` to list all recorded experiments, or
-`structbio status EXPERIMENT_ID` for one exact directory name. If a SLURM job ID
-is recorded and `squeue` is available, its scheduler state is shown too.
+| Command | Creates a folder? | Runs science software? |
+| --- | --- | --- |
+| `TOOL RUNTYPE ... OUTPUT` | yes, the folder you named | yes |
+| `TOOL RUNTYPE ... OUTPUT --dry-run` | no | no |
+| `structbio TOOL run CONFIG.yaml` | yes, under `experiments_root` | yes |
+| `structbio TOOL run CONFIG.yaml --dry-run` | no | no |
+| `structbio TOOL validate CONFIG.yaml` | no | no |
+| `structbio TOOL command CONFIG.yaml` | no | no |
+| `structbio proteinmpnn inspect-mask CONFIG.yaml` | no | no |
+| `structbio status [FOLDER \| EXPERIMENT_ID]` | no | no |
+| `structbio setup` / `doctor` / `tools` / `config` | configuration only | no |
 
 ## Configuration precedence
 
 Values merge in this order, with later layers winning: package defaults,
-lab-wide config (`/etc/structbio/config.yaml` or `STRUCTBIO_LAB_CONFIG`), user
-config (`~/.config/structbio/config.yaml` or `STRUCTBIO_USER_CONFIG`), experiment
-YAML, then command-line overrides when a command supplies them. No cluster name
-or software path is hardcoded.
+optional lab-wide config (`/etc/structbio/config.yaml` or
+`STRUCTBIO_LAB_CONFIG`), user config (`~/.config/structbio/config.yaml` or
+`STRUCTBIO_USER_CONFIG`), then either the experiment YAML or the arguments typed
+on the command line, and finally `--set` overrides. No workstation path is
+hardcoded.
 
 ## More help
 
 - [Copyable wrapper configuration catalog](examples/README.md)
 - [Installation and environments](docs/installation.md)
-- [HPC and SLURM](docs/hpc.md)
-- [RFdiffusion wrapper: modes, YAML fields, and examples](docs/rfdiffusion.md)
+- [RFdiffusion wrapper: quick commands, modes, and YAML fields](docs/rfdiffusion.md)
 - [ProteinMPNN wrapper: mutation masks, constraints, and batching](docs/proteinmpnn.md)
 - [CryoZeta wrapper: native JSON and inference modes](docs/cryozeta.md)
 - [Adding a backend](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Optional: shared clusters and SLURM](docs/cluster.md)

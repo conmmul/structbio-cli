@@ -18,6 +18,3 @@ constraints:
 
 resources:
   gpus: 1
-  cpus: 4
-  memory: 16G
-  time: 02:00:00

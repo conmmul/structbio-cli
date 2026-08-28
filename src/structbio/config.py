@@ -22,6 +22,37 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
+USER_CONFIG_TEMPLATE = """# structbio workstation configuration.
+#
+# `path` is the root of an existing tool checkout on this machine and
+# `executable` is relative to that root. structbio never installs the
+# scientific software or its model weights.
+#
+# Delete the entries for software this workstation does not have.
+
+tools:
+  rfdiffusion:
+    path: ~/software/RFdiffusion
+    executable: scripts/run_inference.py
+    manager: conda
+    environment: SE3nv
+  proteinmpnn:
+    path: ~/software/ProteinMPNN
+    executable: protein_mpnn_run.py
+    manager: conda
+    environment: mlfold
+  cryozeta:
+    path: ~/software/CryoZeta
+    executable: inference_demo.sh
+    manager: pixi
+    environment: default
+
+# Where `structbio TOOL run CONFIG.yaml` keeps dated experiment folders. Quick
+# commands ignore this and write to the output folder you name instead.
+experiments_root: ~/structbio-experiments
+"""
+
+
 class ToolInstallation(BaseModel):
     """How a lab installation of an external tool is reached."""
 
@@ -106,6 +137,28 @@ def _configured_path(env_name: str, fallback: Path) -> Path:
     return Path(value).expanduser() if value else fallback
 
 
+def lab_config_path(override: Path | None = None) -> Path:
+    return override or _configured_path(
+        "STRUCTBIO_LAB_CONFIG", Path("/etc/structbio/config.yaml")
+    )
+
+
+def user_config_path(override: Path | None = None) -> Path:
+    return override or _configured_path(
+        "STRUCTBIO_USER_CONFIG", Path.home() / ".config/structbio/config.yaml"
+    )
+
+
+def _finalize(data: dict[str, Any], source: Path, layers: list[Path]) -> LoadedConfig:
+    settings_data = {
+        key: data[key]
+        for key in ("experiments_root", "tools", "cluster_profiles")
+        if key in data
+    }
+    settings = StructbioSettings.model_validate(settings_data)
+    return LoadedConfig(data=data, settings=settings, source=source, layers=layers)
+
+
 def load_config(
     experiment_path: Path,
     *,
@@ -119,30 +172,49 @@ def load_config(
     if not experiment_path.is_file():
         raise ValueError(f"Configuration file does not exist: {experiment_path}")
 
-    lab_path = lab_config or _configured_path(
-        "STRUCTBIO_LAB_CONFIG", Path("/etc/structbio/config.yaml")
-    )
-    user_path = user_config or _configured_path(
-        "STRUCTBIO_USER_CONFIG", Path.home() / ".config/structbio/config.yaml"
-    )
-
     data = deepcopy(DEFAULT_CONFIG)
     layers: list[Path] = []
-    for candidate in (lab_path, user_path, experiment_path):
+    for candidate in (
+        lab_config_path(lab_config),
+        user_config_path(user_config),
+        experiment_path,
+    ):
         candidate = candidate.expanduser()
         if candidate.is_file():
             data = deep_merge(data, read_yaml(candidate))
             layers.append(candidate.resolve())
     if overrides:
         data = deep_merge(data, overrides)
+    return _finalize(data, experiment_path, layers)
 
-    settings_data = {
-        key: data[key]
-        for key in ("experiments_root", "tools", "cluster_profiles")
-        if key in data
-    }
-    settings = StructbioSettings.model_validate(settings_data)
-    return LoadedConfig(data=data, settings=settings, source=experiment_path, layers=layers)
+
+def load_command_line_config(
+    fragment: dict[str, Any],
+    *,
+    lab_config: Path | None = None,
+    user_config: Path | None = None,
+    overrides: dict[str, Any] | None = None,
+    working_dir: Path | None = None,
+) -> LoadedConfig:
+    """Load defaults < lab < user < arguments typed on the command line.
+
+    Relative paths typed on the command line are resolved against the current
+    working directory, so `source` names a file that is never read: only its
+    parent directory matters to `resolve_from_config`.
+    """
+
+    data = deepcopy(DEFAULT_CONFIG)
+    layers: list[Path] = []
+    for candidate in (lab_config_path(lab_config), user_config_path(user_config)):
+        candidate = candidate.expanduser()
+        if candidate.is_file():
+            data = deep_merge(data, read_yaml(candidate))
+            layers.append(candidate.resolve())
+    data = deep_merge(data, fragment)
+    if overrides:
+        data = deep_merge(data, overrides)
+    source = (working_dir or Path.cwd()).resolve() / "command-line"
+    return _finalize(data, source, layers)
 
 
 def load_settings(
@@ -150,14 +222,8 @@ def load_settings(
 ) -> StructbioSettings:
     """Load defaults plus optional lab and user configuration for diagnostics."""
 
-    lab_path = lab_config or _configured_path(
-        "STRUCTBIO_LAB_CONFIG", Path("/etc/structbio/config.yaml")
-    )
-    user_path = user_config or _configured_path(
-        "STRUCTBIO_USER_CONFIG", Path.home() / ".config/structbio/config.yaml"
-    )
     data = deepcopy(DEFAULT_CONFIG)
-    for candidate in (lab_path, user_path):
+    for candidate in (lab_config_path(lab_config), user_config_path(user_config)):
         candidate = candidate.expanduser()
         if candidate.is_file():
             data = deep_merge(data, read_yaml(candidate))

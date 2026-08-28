@@ -24,7 +24,9 @@ def executable_path(installation: ToolInstallation) -> Path | None:
     return None
 
 
-def command_output(argv: list[str], timeout: float = 3.0) -> str | None:
+def command_output(
+    argv: list[str], timeout: float = 3.0, *, only_on_success: bool = False
+) -> str | None:
     try:
         result = subprocess.run(
             argv,
@@ -35,12 +37,18 @@ def command_output(argv: list[str], timeout: float = 3.0) -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
+    if only_on_success and result.returncode:
+        return None
     text = (result.stdout or result.stderr).strip()
     return text or None
 
 
 def git_commit(path: Path) -> str | None:
-    output = command_output(["git", "-C", str(path), "rev-parse", "HEAD"])
+    """Return the commit of a checkout, or None when it is not a Git checkout."""
+
+    output = command_output(
+        ["git", "-C", str(path), "rev-parse", "HEAD"], only_on_success=True
+    )
     return output.splitlines()[0] if output else None
 
 

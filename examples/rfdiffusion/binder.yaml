@@ -15,6 +15,3 @@ design:
 
 resources:
   gpus: 1
-  cpus: 8
-  memory: 32G
-  time: 04:00:00

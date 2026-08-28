@@ -12,6 +12,3 @@ pixi_environment: default
 
 resources:
   gpus: 1
-  cpus: 8
-  memory: 64G
-  time: 04:00:00

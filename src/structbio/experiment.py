@@ -17,11 +17,16 @@ import yaml
 from structbio.environment import environment_snapshot, git_commit, relevant_package_versions
 
 
-def _safe_name(value: str) -> str:
+def safe_name(value: str) -> str:
+    """Reduce a researcher-supplied name to characters that are safe in paths."""
+
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip()).strip("._")
     if not cleaned:
         raise ValueError("Experiment name must contain at least one letter or number")
     return cleaned
+
+
+RECORD_DIRECTORY = ".structbio"
 
 
 @dataclass(frozen=True)
@@ -45,7 +50,7 @@ class ExperimentManager:
 
     def candidate(self, name: str, now: datetime | None = None) -> Path:
         date = (now or datetime.now()).astimezone().strftime("%Y-%m-%d")
-        prefix = f"{_safe_name(name)}_{date}"
+        prefix = f"{safe_name(name)}_{date}"
         for index in range(1, 10_000):
             candidate = self.root / f"{prefix}_{index:03d}"
             if not candidate.exists():
@@ -83,6 +88,67 @@ class ExperimentManager:
             analysis=root / "analysis",
             slurm_script=root / "job.slurm",
         )
+
+
+def direct_paths(output_dir: Path) -> ExperimentPaths:
+    """Place run records beside outputs for a plain workstation output folder.
+
+    The folder the researcher named is the output folder itself, so wrapped tool
+    output lands exactly where they asked. Provenance files are kept together in
+    a single `.structbio` subfolder rather than mixed in with the results.
+    """
+
+    output_dir = output_dir.expanduser()
+    record = output_dir / RECORD_DIRECTORY
+    return ExperimentPaths(
+        root=output_dir,
+        config=record / "config.yaml",
+        command=record / "command.txt",
+        metadata=record / "metadata.json",
+        environment=record / "environment.txt",
+        stdout=record / "stdout.log",
+        stderr=record / "stderr.log",
+        inputs=record / "inputs",
+        outputs=output_dir,
+        analysis=record / "analysis",
+        slurm_script=record / "job.slurm",
+    )
+
+
+def prepare_output_dir(output_dir: Path) -> ExperimentPaths:
+    """Create an empty output folder, refusing to write over existing results."""
+
+    output_dir = output_dir.expanduser()
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            raise ValueError(f"Output path already exists and is not a folder: {output_dir}")
+        if any(output_dir.iterdir()):
+            raise ValueError(
+                f"Refusing to write into the existing non-empty folder {output_dir}; "
+                "choose a different output name"
+            )
+    safe_name(output_dir.name)  # reject a folder name that cannot also name a run
+    output_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
+    paths = direct_paths(output_dir)
+    paths.metadata.parent.mkdir(mode=0o750, exist_ok=True)
+    for directory in (paths.inputs, paths.analysis):
+        directory.mkdir(exist_ok=True)
+    paths.stdout.touch()
+    paths.stderr.touch()
+    return paths
+
+
+def read_metadata(output_dir: Path) -> dict[str, Any] | None:
+    """Return the recorded metadata for a workstation output folder, if any."""
+
+    metadata_path = direct_paths(output_dir).metadata
+    if not metadata_path.is_file():
+        metadata_path = output_dir / "metadata.json"
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def write_records(

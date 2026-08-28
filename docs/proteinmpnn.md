@@ -18,14 +18,40 @@ Configure the upstream checkout and environment:
 ```yaml
 tools:
   proteinmpnn:
-    path: /work/software/ProteinMPNN
+    path: ~/software/ProteinMPNN
     executable: protein_mpnn_run.py
     manager: conda
     environment: proteinmpnn
 ```
 
 The ProteinMPNN weights and PyTorch environment must already be installed. Run
-`structbio doctor` on the workstation or cluster where the command will run.
+`structbio doctor` on the workstation where the command will run.
+
+## Quick command
+
+```bash
+proteinmpnn design 7kdp.pdb 8 my_sequences --chains A --designable A:697-749
+```
+
+The arguments are the input, the number of sequences per backbone, and the output
+folder. The input may also be a folder of PDB files, in which case each file gets
+its own subfolder of results.
+
+| Option | Meaning |
+| --- | --- |
+| `--chains A,B` | Chains permitted to contain designable residues. |
+| `--designable A:697-749` | Only these original PDB positions may change. |
+| `--fixed A:700,A:705` | These positions must not change. |
+| `--temp 0.1,0.2` | One or more sampling temperatures. |
+| `--seed`, `--soluble` | Upstream seed and soluble model weights. |
+| `--gpu 0`, `--dry-run` | Card selection, and command preview only. |
+
+Without `--designable`, every residue of the selected chains may change. The
+quick command prints the same designable and fixed residue report as
+`inspect-mask`, in the original PDB numbering, before ProteinMPNN starts, and
+aborts if the generated mask does not round-trip exactly.
+
+Amino-acid omissions and per-position biases are YAML-only.
 
 ## Required review sequence
 
@@ -240,9 +266,8 @@ validated independently and receives its own command and output subdirectory.
 The same requested chain and position selections must exist in every PDB; the
 batch aborts rather than applying different interpretations to different files.
 
-For an HPC array, first count and review the sorted PDB files, then set an array
-whose zero-based indices match the generated command steps. See [HPC and
-SLURM](hpc.md#slurm-arrays).
+On a shared cluster the same batch can be spread over a SLURM array; see [the
+optional cluster guide](cluster.md#slurm-arrays).
 
 ## Main YAML fields
 
@@ -265,9 +290,11 @@ SLURM](hpc.md#slurm-arrays).
 
 ## Outputs and troubleshooting
 
-For one PDB, ProteinMPNN writes below `EXPERIMENT/outputs/`. For a directory,
-each PDB gets `EXPERIMENT/outputs/PDB_STEM/`. Generated fixed-position and bias
-JSONL files are saved under `EXPERIMENT/inputs/` for auditability.
+A quick command writes results directly into the output folder you named, with
+one subfolder per PDB for a directory batch, and keeps the generated
+fixed-position and bias JSONL files under `OUTPUT/.structbio/inputs/` for
+auditability. A YAML run writes to `EXPERIMENT/outputs/` and
+`EXPERIMENT/inputs/` instead.
 
 If validation fails, do not work around it by renumbering the raw PDB. Instead:
 

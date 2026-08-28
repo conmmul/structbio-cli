@@ -56,3 +56,22 @@ def test_documented_yaml_blocks_are_parseable() -> None:
                     f"Invalid YAML block {index} in {markdown_file.name}: {exc}"
                 ) from exc
             assert isinstance(payload, dict), (markdown_file, index)
+
+
+def test_documented_short_commands_exist() -> None:
+    """Every `tool runtype` shown in the README must be a real command."""
+
+    from structbio.cli import app
+
+    groups = {group.name: group.typer_instance for group in app.registered_groups}
+    text = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+    documented = set(
+        re.findall(r"^\| `(rfdiffusion|proteinmpnn|cryozeta) ([a-z-]+)", text, re.MULTILINE)
+    )
+    assert documented, "no short commands are documented"
+    for tool, runtype in sorted(documented):
+        commands = {
+            command.name or command.callback.__name__
+            for command in groups[tool].registered_commands
+        }
+        assert runtype in commands, f"README documents unknown command: {tool} {runtype}"

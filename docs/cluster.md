@@ -1,8 +1,12 @@
-# HPC and SLURM
+# Optional: shared clusters and SLURM
 
-`structbio` can run in an existing local shell/allocation or generate a portable
-SLURM script. It never submits a job merely because `submit` appears in the
-command: `--execute` is required to call `sbatch`.
+`structbio` is built for lab workstations, and nothing in this file is needed
+there. It is kept for the case where the same configuration has to run on a
+shared cluster: `structbio TOOL submit CONFIG.yaml` turns a YAML configuration
+into a portable SLURM script. Quick commands do not use SLURM at all.
+
+Submission is never implicit. `submit` writes a script and stops; `--execute` is
+required before `sbatch` is called, which makes the command safe on a login node.
 
 ## Define a cluster profile
 
@@ -84,9 +88,10 @@ Each non-dry-run invocation creates a new experiment. The last command does not
 submit a script prepared by the preceding command; it safely creates and submits
 another uniquely recorded experiment.
 
-SLURM assigns GPU visibility for the job. Users normally should not set
-`CUDA_VISIBLE_DEVICES` manually. CryoZeta's verified upstream script performs its
-own local GPU selection; see its wrapper guide for that special case.
+SLURM assigns GPU visibility for the job, so do not pass `--gpu` to a submitted
+run: that option exists for picking a card on a workstation, where it sets
+`CUDA_VISIBLE_DEVICES`. CryoZeta's verified upstream script performs its own GPU
+selection; see its wrapper guide for that special case.
 
 ## Monitor experiments and jobs
 

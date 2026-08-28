@@ -1,20 +1,29 @@
+# A shared configuration for a lab workstation, pointed at by
+# STRUCTBIO_LAB_CONFIG or copied to ~/.config/structbio/config.yaml.
+# Users can override any of it in their own configuration.
+
 tools:
   rfdiffusion:
     environment: SE3nv
     manager: conda
-    path: /work/software/RFdiffusion
+    path: /opt/software/RFdiffusion
     executable: scripts/run_inference.py
   proteinmpnn:
-    environment: SE3nv
+    environment: mlfold
     manager: conda
-    path: /work/software/ProteinMPNN
+    path: /opt/software/ProteinMPNN
     executable: protein_mpnn_run.py
   cryozeta:
     environment: default
     manager: pixi
-    path: /work/software/CryoZeta
+    path: /opt/software/CryoZeta
     executable: inference_demo.sh
 
+# Only used by `structbio TOOL run CONFIG.yaml`. Quick commands write to the
+# output folder named on the command line instead.
+experiments_root: ~/structbio-experiments
+
+# Optional, and only used by `structbio TOOL submit` on a shared cluster.
 cluster_profiles:
   lab_gpu:
     partition: gpu

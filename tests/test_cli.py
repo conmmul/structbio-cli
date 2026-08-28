@@ -1,7 +1,10 @@
+import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+from structbio import __version__
 from structbio.cli import app
 
 
@@ -56,3 +59,177 @@ def test_cli_override_has_highest_precedence(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert "inference.num_designs=7" in result.output
+
+
+def _workstation_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point structbio at a fake, non-executable tool checkout."""
+
+    checkout = tmp_path / "software" / "RFdiffusion" / "scripts"
+    checkout.mkdir(parents=True)
+    (checkout / "run_inference.py").write_text("raise SystemExit('never executed')\n")
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {tmp_path / 'software' / 'RFdiffusion'}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: none\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.chdir(tmp_path)
+    return user_config
+
+
+def test_quick_monomer_dry_run_creates_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    result = runner.invoke(
+        app, ["rfdiffusion", "monomer", "150", "my_designs", "-n", "4", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "contigmap.contigs=[150-150]" in result.output
+    assert "inference.num_designs=4" in result.output
+    assert "my_designs/my_designs" in result.output
+    assert "nothing was created or executed" in result.output
+    assert not (tmp_path / "my_designs").exists()
+
+
+def test_quick_command_names_output_files_after_the_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["rfdiffusion", "monomer", "80", "nested/run_one", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "nested/run_one/run_one" in result.output
+
+
+def test_quick_gpu_selection_is_passed_as_an_environment_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    result = runner.invoke(
+        app, ["rfdiffusion", "monomer", "80", "out", "--gpu", "1,2", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "CUDA_VISIBLE_DEVICES=1,2" in result.output
+
+    rejected = runner.invoke(
+        app, ["rfdiffusion", "monomer", "80", "out", "--gpu", "cuda:0", "--dry-run"]
+    )
+    assert rejected.exit_code == 2
+    assert "Invalid GPU selection" in rejected.output
+
+
+def test_quick_run_refuses_a_non_empty_output_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    existing = tmp_path / "occupied"
+    existing.mkdir()
+    (existing / "previous.pdb").write_text("ATOM\n")
+    result = runner.invoke(app, ["rfdiffusion", "monomer", "80", "occupied"])
+    assert result.exit_code == 2
+    assert "Refusing to write into the existing non-empty folder" in result.output
+    assert (existing / "previous.pdb").read_text() == "ATOM\n"
+
+
+def test_quick_run_stops_when_the_tool_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text("tools:\n  rfdiffusion:\n    manager: none\n")
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["rfdiffusion", "monomer", "80", "out"])
+    assert result.exit_code == 2
+    assert "not available on this machine" in result.output
+    assert not (tmp_path / "out").exists()
+
+
+def test_quick_binder_reports_a_bad_chain_before_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tiny_pdb: Path
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    result = runner.invoke(
+        app, ["rfdiffusion", "binder", str(tiny_pdb), "100", "out", "--dry-run"]
+    )
+    assert result.exit_code == 2
+    assert "name the target chain with --chain" in result.output
+
+
+def test_quick_binder_builds_the_contig_from_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tiny_pdb: Path
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    result = runner.invoke(
+        app,
+        [
+            "rfdiffusion",
+            "binder",
+            str(tiny_pdb),
+            "100",
+            "binders",
+            "--chain",
+            "B",
+            "--hotspots",
+            "B11",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "contigmap.contigs=[B10-12/0 100-100]" in result.output
+    assert "ppi.hotspot_res=[B11]" in result.output
+
+
+def test_quick_run_writes_outputs_and_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    script = tmp_path / "software" / "RFdiffusion" / "scripts" / "run_inference.py"
+    script.write_text(
+        "import os, sys, pathlib\n"
+        "prefix = [a.split('=', 1)[1] for a in sys.argv[1:]\n"
+        "          if a.startswith('inference.output_prefix=')][0]\n"
+        "pathlib.Path(prefix + '_0.pdb').write_text('ATOM\\n')\n"
+        "pathlib.Path(prefix + '_gpu.txt').write_text(os.environ.get('CUDA_VISIBLE_DEVICES', ''))\n"
+    )
+    result = runner.invoke(
+        app, ["rfdiffusion", "monomer", "40", "designs", "--gpu", "3"]
+    )
+    assert result.exit_code == 0, result.output
+    output_dir = tmp_path / "designs"
+    assert (output_dir / "designs_0.pdb").read_text() == "ATOM\n"
+    assert (output_dir / "designs_gpu.txt").read_text() == "3"
+    metadata = json.loads((output_dir / ".structbio" / "metadata.json").read_text())
+    assert metadata["status"] == "completed"
+    assert metadata["tool"] == "rfdiffusion"
+
+    status = runner.invoke(app, ["status", str(output_dir)])
+    assert status.exit_code == 0, status.output
+    assert "completed" in status.output
+
+
+def test_setup_writes_a_configuration_and_tool_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config" / "structbio.yaml"
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(config_path))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    result = runner.invoke(app, ["setup", "--bin-dir", str(tmp_path / "bin")])
+    assert result.exit_code == 0, result.output
+    assert "tools:" in config_path.read_text()
+    assert (tmp_path / "bin" / "rfdiffusion").stat().st_mode & 0o111
+
+    config_path.write_text("tools: {}\n")
+    again = runner.invoke(app, ["setup", "--bin-dir", str(tmp_path / "bin")])
+    assert again.exit_code == 0, again.output
+    assert config_path.read_text() == "tools: {}\n"
+
+
+def test_version_flag_reports_the_package_version() -> None:
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == __version__
