@@ -214,6 +214,7 @@ class ProteinMPNNBackend(ToolBackend):
     name = "proteinmpnn"
     display_name = "ProteinMPNN"
     config_model = ProteinMPNNConfig
+    needs_torch = True
 
     def parse_config(self, raw: dict[str, Any], source: Path) -> ProteinMPNNConfig:
         selected = {
@@ -354,6 +355,7 @@ class ProteinMPNNBackend(ToolBackend):
             installation,
             tool=self.name,
             default_executable="protein_mpnn_run.py",
+            needs_torch=True,
         )
 
 

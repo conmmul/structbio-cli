@@ -14,7 +14,7 @@ from typing import Any
 import typer
 from pydantic import ValidationError
 
-from structbio import __version__, discovery, install, quick, wrappers
+from structbio import __version__, discovery, environment, install, quick, wrappers
 from structbio.config import (
     USER_CONFIG_TEMPLATE,
     LoadedConfig,
@@ -25,7 +25,7 @@ from structbio.config import (
     parse_cli_overrides,
     user_config_path,
 )
-from structbio.environment import detect_gpu, detect_unwrapped_tools, select_idle_gpu
+from structbio.environment import detect_unwrapped_tools
 from structbio.execution import execute_plan, plan_input_paths
 from structbio.experiment import (
     ExperimentManager,
@@ -199,7 +199,7 @@ def _resolve_gpu(gpu: str | None) -> str | None:
     if not gpu:
         return None
     if gpu.strip().lower() == "auto":
-        index = select_idle_gpu()
+        index = environment.select_idle_gpu()
         if index is None:
             _abort("--gpu auto needs nvidia-smi to see the GPUs; name an id such as --gpu 0")
         typer.echo(f"Using GPU {index}, which has the most free memory.")
@@ -901,6 +901,88 @@ def _update_config(config_path: Path, found: dict[str, discovery.Discovery]) -> 
     typer.echo(f"Updated {config_path} (previous version saved as {backup.name}).")
 
 
+@app.command("fix-env")
+def fix_env(
+    tool: str | None = typer.Argument(
+        None, help="Which tool's environment to repair; all of them if omitted"
+    ),
+    run: bool = typer.Option(False, "--run", help="Install, rather than only printing"),
+    force: bool = typer.Option(
+        False, "--force", help="Reinstall even when PyTorch is already present"
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask before installing"),
+) -> None:
+    """Install the PyTorch build this machine's GPU needs, into a tool's environment.
+
+    The build is chosen from the CUDA version the NVIDIA driver reports, since
+    a wheel compiled for a newer CUDA than the driver will not run. Without
+    --run this only prints the command, so you can inspect or share it.
+    """
+
+    settings = load_settings()
+    driver = environment.driver_cuda_version()
+    build = environment.select_torch_build(driver)
+    typer.echo(
+        f"Driver CUDA: {f'{driver[0]}.{driver[1]}' if driver else 'no NVIDIA driver found'}"
+    )
+    typer.echo(f"PyTorch build to use: {build}\n")
+
+    backends = get_backends()
+    if tool is not None:
+        if tool not in backends:
+            _abort(f"Unknown tool {tool!r}; known tools: {', '.join(sorted(backends))}")
+        selected = {tool: backends[tool]}
+    else:
+        selected = {name: backend for name, backend in backends.items() if backend.needs_torch}
+
+    environments = environment.conda_environments()
+    acted = False
+    for name, backend in selected.items():
+        installation = settings.tools.get(name)
+        if installation is None or not installation.environment:
+            typer.echo(f"{backend.display_name:<14} no conda environment is configured; skipped")
+            continue
+        prefix = environments.get(installation.environment)
+        if prefix is None:
+            typer.echo(
+                f"{backend.display_name:<14} the environment "
+                f"{installation.environment!r} does not exist; create it first with "
+                f"'structbio install {name} --dry-run'"
+            )
+            continue
+
+        torch = environment.find_torch(prefix)
+        if torch is None:
+            state = "PyTorch is not installed"
+        else:
+            built = f"built for CUDA {torch.cuda}" if torch.cuda else "CPU-only build"
+            state = f"PyTorch {torch.version}, {built}"
+        typer.echo(f"{backend.display_name:<14} {installation.environment}: {state}")
+
+        if torch is not None and not force:
+            typer.echo(f"{'':<14} already installed; pass --force to replace it")
+            continue
+
+        command = environment.torch_install_command(installation.environment, build)
+        typer.echo(f"{'':<14} {' '.join(command)}")
+        if not run:
+            acted = True
+            continue
+        if not yes and not typer.confirm(
+            f"Install PyTorch into {installation.environment!r} now?"
+        ):
+            typer.echo("Nothing was installed.")
+            continue
+        result = subprocess.run(command, check=False)
+        if result.returncode:
+            _abort(f"The install failed with exit code {result.returncode}")
+        typer.echo(f"{'':<14} done; check it with 'structbio doctor'")
+        acted = True
+
+    if acted and not run:
+        typer.echo("\nNothing was installed. Re-run with --run to install.")
+
+
 @app.command("detect")
 def detect_command() -> None:
     """Look for wrapped software installed on this machine, changing nothing."""
@@ -1101,7 +1183,7 @@ def doctor() -> None:
     """Diagnose this workstation and the tool installations it can reach."""
 
     settings = load_settings()
-    gpu = detect_gpu()
+    gpu = environment.detect_gpu()
     typer.echo("structbio workstation\n")
     # Name the running installation: several checkouts on one machine is the
     # usual reason a command is reported as missing.

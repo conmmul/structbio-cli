@@ -56,6 +56,24 @@ line. The distinctions it makes:
 | `conda is not installed` | The entry asks for a conda environment on a machine without conda. Set `manager: none` if no environment is needed. |
 | `the conda environment 'X' does not exist` | The code is present but its environment was never created; the install steps were probably stopped partway. |
 | `pixi is not installed` | Needed by CryoZeta. |
+| `PyTorch is not installed in the conda environment 'X'` | The environment exists but the tool's main dependency is absent. |
+| `PyTorch ... is a CPU-only build` | It runs, ignoring the GPU. |
+| `PyTorch ... was built for CUDA X, but the driver supports only Y` | The wheel is newer than the driver and will fail at import. |
+
+### PyTorch
+
+`structbio fix-env` reads the CUDA version the NVIDIA driver reports, picks the
+newest PyTorch wheel index at or below it, and prints the install command.
+`--run` executes it after asking; `--force` replaces a PyTorch that is already
+there.
+
+The build is read from the environment's `torch/version.py` rather than by
+importing torch, so the check costs nothing and works even when the
+installation is too broken to import.
+
+The choice is deliberately conservative: a wheel built for a newer CUDA than
+the driver will not run, so a driver reporting 12.0 is given `cu118` rather
+than `cu121`.
 
 A tool that lives on a shared filesystem is only usable from a machine that
 mounts it. If a tool is installed somewhere structbio does not know about,

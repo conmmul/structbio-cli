@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -146,8 +148,136 @@ def conda_environments() -> dict[str, Path]:
     }
 
 
+# PyTorch publishes one wheel index per CUDA build. Taken from
+# https://download.pytorch.org/whl/ on 2026-08-28; older builds are omitted
+# because no current tool asks for them.
+TORCH_CUDA_BUILDS: tuple[tuple[tuple[int, int], str], ...] = (
+    ((11, 8), "cu118"),
+    ((12, 1), "cu121"),
+    ((12, 4), "cu124"),
+    ((12, 6), "cu126"),
+    ((12, 8), "cu128"),
+    ((12, 9), "cu129"),
+    ((13, 0), "cu130"),
+    ((13, 2), "cu132"),
+)
+TORCH_INDEX = "https://download.pytorch.org/whl/"
+
+
+@dataclass(frozen=True)
+class TorchInstall:
+    """What a PyTorch installation is, read without importing it."""
+
+    version: str
+    cuda: str | None
+
+    @property
+    def cpu_only(self) -> bool:
+        return not self.cuda
+
+
+def driver_cuda_version() -> tuple[int, int] | None:
+    """The highest CUDA version this NVIDIA driver supports, from nvidia-smi."""
+
+    reported = detect_gpu()["cuda_driver"]
+    if not reported:
+        return None
+    match = re.match(r"(\d+)\.(\d+)", str(reported))
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def select_torch_build(driver: tuple[int, int] | None) -> str:
+    """Pick the newest published build the driver can run, or the CPU build.
+
+    A CUDA build runs on any driver at least as new as it, so the right choice
+    is the highest published build not above the driver's version.
+    """
+
+    if driver is None:
+        return "cpu"
+    usable = [name for version, name in TORCH_CUDA_BUILDS if version <= driver]
+    return usable[-1] if usable else "cpu"
+
+
+def torch_install_command(environment: str, build: str) -> list[str]:
+    """The pip command that installs the right PyTorch into a conda environment."""
+
+    return [
+        "conda",
+        "run",
+        "-n",
+        environment,
+        "pip",
+        "install",
+        "torch",
+        "--index-url",
+        f"{TORCH_INDEX}{build}",
+    ]
+
+
+def find_torch(prefix: Path) -> TorchInstall | None:
+    """Read a PyTorch installation's version file, without importing torch.
+
+    Importing torch costs seconds; its `version.py` states both the release and
+    the CUDA build it was compiled for, which is everything needed here.
+    """
+
+    for site in sorted(prefix.glob("lib/python3.*/site-packages/torch/version.py")):
+        try:
+            text = site.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        version = re.search(r"^__version__\s*=\s*['\"]([^'\"]+)", text, re.MULTILINE)
+        cuda = re.search(r"^cuda\s*(?::[^=]+)?=\s*['\"]([^'\"]+)", text, re.MULTILINE)
+        if version:
+            return TorchInstall(version=version.group(1), cuda=cuda.group(1) if cuda else None)
+    return None
+
+
+def diagnose_torch(environment: str) -> tuple[list[str], list[str]]:
+    """Check the PyTorch inside a conda environment against this machine's GPU."""
+
+    problems: list[str] = []
+    remedies: list[str] = []
+    prefix = conda_environments().get(environment)
+    if prefix is None:
+        return problems, remedies
+
+    driver = driver_cuda_version()
+    build = select_torch_build(driver)
+    command = " ".join(torch_install_command(environment, build))
+    torch = find_torch(prefix)
+
+    if torch is None:
+        problems.append(f"PyTorch is not installed in the conda environment {environment!r}")
+        remedies.append(f"structbio fix-env, or run: {command}")
+        return problems, remedies
+
+    gpu_present = bool(detect_gpu()["available"])
+    if torch.cpu_only and gpu_present:
+        problems.append(
+            f"PyTorch {torch.version} in {environment!r} is a CPU-only build, "
+            "so this machine's GPU will not be used"
+        )
+        remedies.append(f"structbio fix-env --force, or run: {command}")
+    elif torch.cuda and driver:
+        built = tuple(int(part) for part in torch.cuda.split(".")[:2])
+        if built > driver:
+            problems.append(
+                f"PyTorch {torch.version} in {environment!r} was built for CUDA "
+                f"{torch.cuda}, but the driver supports only "
+                f"{driver[0]}.{driver[1]}"
+            )
+            remedies.append(f"structbio fix-env --force, or run: {command}")
+    return problems, remedies
+
+
 def diagnose_installation(
-    installation: ToolInstallation, *, tool: str, default_executable: str
+    installation: ToolInstallation,
+    *,
+    tool: str,
+    default_executable: str,
+    needs_torch: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Say exactly why a configured tool cannot be reached, and what to do.
 
@@ -194,6 +324,10 @@ def diagnose_installation(
                     f"create it with the steps from 'structbio install {tool} --dry-run', "
                     "or correct 'environment' in the configuration"
                 )
+            elif needs_torch:
+                torch_problems, torch_remedies = diagnose_torch(installation.environment)
+                problems.extend(torch_problems)
+                remedies.extend(torch_remedies)
     elif installation.manager == "pixi" and shutil.which("pixi") is None:
         problems.append("pixi is not installed")
         remedies.append("curl -fsSL https://pixi.sh/install.sh | bash")

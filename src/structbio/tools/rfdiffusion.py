@@ -99,6 +99,7 @@ class RFDiffusionBackend(ToolBackend):
     name = "rfdiffusion"
     display_name = "RFdiffusion"
     config_model = RFDiffusionConfig
+    needs_torch = True
 
     def parse_config(self, raw: dict[str, Any], source: Path) -> RFDiffusionConfig:
         selected = {
@@ -236,6 +237,7 @@ class RFDiffusionBackend(ToolBackend):
             installation,
             tool=self.name,
             default_executable="scripts/run_inference.py",
+            needs_torch=True,
         )
 
 

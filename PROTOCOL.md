@@ -299,6 +299,41 @@ The three things it distinguishes, and what each means:
 | `the configured path does not exist` | The tool was never installed, or it is somewhere else. |
 | `... exists but does not contain scripts/run_inference.py` | The folder is there but the download was incomplete, or it is a different project. |
 | `the conda environment 'X' does not exist` | The code is there but its software environment was never created — usually the install steps were stopped partway. |
+| `PyTorch is not installed in the conda environment 'X'` | The environment exists but is empty of the maths library the tool needs. See below. |
+| `PyTorch ... is a CPU-only build` | It will work, but slowly, ignoring the graphics card entirely. |
+
+### PyTorch problems
+
+RFdiffusion and ProteinMPNN both need PyTorch, which has to match the graphics
+card driver on the machine. Getting the wrong one is the single most common
+installation problem, so structbio works out the right one for you:
+
+```bash
+structbio fix-env
+```
+
+It prints what it found and the exact command that would fix it:
+
+```text
+Driver CUDA: 12.4
+PyTorch build to use: cu124
+
+ProteinMPNN    mlfold: PyTorch is not installed
+               conda run -n mlfold pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+Nothing was installed. Re-run with --run to install.
+```
+
+Nothing happens until you add `--run`:
+
+```bash
+structbio fix-env proteinmpnn --run
+```
+
+It will ask before installing anything, and it leaves a working PyTorch alone
+unless you add `--force`. If it says `no NVIDIA driver found`, you are on a
+machine without a graphics card and will get the CPU build, which is correct
+there — ProteinMPNN runs fine on a CPU, RFdiffusion realistically does not.
 
 Run the `fix:` line that matches. If you have the tool installed somewhere
 else, `structbio detect` will find it and `structbio setup --update` will record

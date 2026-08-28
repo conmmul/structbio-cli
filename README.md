@@ -105,6 +105,10 @@ structbio tools
 structbio config
 ```
 
+If a tool reports a missing or mismatched PyTorch, `structbio fix-env` works
+out the build this machine's driver needs and prints the command; `--run`
+installs it.
+
 A tool is ready only when `doctor` reports it as `FOUND`.
 
 ## Quick commands

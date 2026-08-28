@@ -98,10 +98,19 @@ def test_a_complete_installation_reports_no_problems(
     script = tmp_path / "scripts" / "run_inference.py"
     script.parent.mkdir()
     script.touch()
-    monkeypatch.setattr(
-        "structbio.environment.conda_environments", lambda: {"SE3nv": Path("/envs/SE3nv")}
+    # A complete installation includes PyTorch in its environment.
+    prefix = tmp_path / "envs" / "SE3nv"
+    torch_dir = prefix / "lib" / "python3.11" / "site-packages" / "torch"
+    torch_dir.mkdir(parents=True)
+    (torch_dir / "version.py").write_text(
+        "__version__ = '2.3.1+cu121'\ncuda: Optional[str] = '12.1'\n"
     )
+    monkeypatch.setattr("structbio.environment.conda_environments", lambda: {"SE3nv": prefix})
     monkeypatch.setattr("structbio.environment.shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        "structbio.environment.detect_gpu",
+        lambda: {"available": True, "models": [], "cuda_driver": "12.4"},
+    )
     check = RFDiffusionBackend().check_environment(
         _installation(
             path=tmp_path,

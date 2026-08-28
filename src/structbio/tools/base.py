@@ -96,6 +96,9 @@ class ToolBackend(ABC):
     name: str
     display_name: str
     config_model: type[BaseModel]
+    # True when the tool runs from a Conda environment the researcher builds,
+    # and so can be missing PyTorch or have a build that ignores the GPU.
+    needs_torch: bool = False
 
     @abstractmethod
     def parse_config(self, raw: dict[str, Any], source: Path) -> BaseModel:
@@ -127,6 +130,7 @@ def standard_environment_check(
     tool: str,
     default_executable: str,
     interface: str | None = None,
+    needs_torch: bool = False,
 ) -> EnvironmentCheck:
     """The reachability check shared by every backend."""
 
@@ -134,7 +138,10 @@ def standard_environment_check(
 
     executable = executable_path(installation)
     problems, remedies = diagnose_installation(
-        installation, tool=tool, default_executable=default_executable
+        installation,
+        tool=tool,
+        default_executable=default_executable,
+        needs_torch=needs_torch,
     )
     details: list[str] = []
     if interface:

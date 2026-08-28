@@ -261,7 +261,7 @@ def test_gpu_auto_picks_the_card_with_most_free_memory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _workstation_config(tmp_path, monkeypatch)
-    monkeypatch.setattr("structbio.cli.select_idle_gpu", lambda: 2)
+    monkeypatch.setattr("structbio.environment.select_idle_gpu", lambda: 2)
     result = runner.invoke(
         app, ["rfdiffusion", "monomer", "80", "out", "--gpu", "auto", "--dry-run"]
     )
@@ -274,7 +274,7 @@ def test_gpu_auto_without_nvidia_smi_says_so(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _workstation_config(tmp_path, monkeypatch)
-    monkeypatch.setattr("structbio.cli.select_idle_gpu", lambda: None)
+    monkeypatch.setattr("structbio.environment.select_idle_gpu", lambda: None)
     result = runner.invoke(
         app, ["rfdiffusion", "monomer", "80", "out", "--gpu", "auto", "--dry-run"]
     )
@@ -447,3 +447,87 @@ def test_doctor_names_the_reason_a_tool_is_unavailable(
     assert "CONFIGURED, UNAVAILABLE" in result.output
     assert "does not contain scripts/run_inference.py" in result.output
     assert "fix:" in result.output
+
+
+def _conda_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, torch: str | None) -> Path:
+    """A ProteinMPNN checkout plus a conda environment, with or without torch."""
+
+    checkout = tmp_path / "ProteinMPNN"
+    checkout.mkdir()
+    (checkout / "protein_mpnn_run.py").touch()
+    prefix = tmp_path / "envs" / "mlfold"
+    prefix.mkdir(parents=True)
+    if torch is not None:
+        site = prefix / "lib" / "python3.11" / "site-packages" / "torch"
+        site.mkdir(parents=True)
+        (site / "version.py").write_text(torch)
+
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  proteinmpnn:\n"
+        f"    path: {checkout}\n"
+        "    executable: protein_mpnn_run.py\n"
+        "    manager: conda\n"
+        "    environment: mlfold\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.setattr("structbio.environment.conda_environments", lambda: {"mlfold": prefix})
+    monkeypatch.setattr("structbio.environment.shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        "structbio.environment.detect_gpu",
+        lambda: {"available": True, "models": ["Test GPU"], "cuda_driver": "12.4"},
+    )
+    monkeypatch.chdir(tmp_path)
+    return checkout
+
+
+def test_a_run_stops_when_torch_is_missing_and_says_how_to_install_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tiny_pdb: Path
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    result = runner.invoke(app, ["proteinmpnn", "design", str(tiny_pdb), "2", "out"])
+    assert result.exit_code == 2
+    assert "PyTorch is not installed" in result.output
+    assert "whl/cu124" in result.output
+
+
+def test_fix_env_prints_the_command_and_installs_nothing_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    calls: list[list[str]] = []
+    monkeypatch.setattr("structbio.cli.subprocess.run", lambda argv, **_: calls.append(argv))
+
+    result = runner.invoke(app, ["fix-env", "proteinmpnn"])
+    assert result.exit_code == 0, result.output
+    assert "Driver CUDA: 12.4" in result.output
+    assert "PyTorch build to use: cu124" in result.output
+    assert "conda run -n mlfold pip install torch" in result.output
+    assert "Nothing was installed" in result.output
+    assert calls == []
+
+
+def test_fix_env_leaves_a_working_installation_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _conda_tool(
+        tmp_path,
+        monkeypatch,
+        torch="__version__ = '2.3.1+cu121'\ncuda: Optional[str] = '12.1'\n",
+    )
+    result = runner.invoke(app, ["fix-env", "proteinmpnn"])
+    assert result.exit_code == 0, result.output
+    assert "PyTorch 2.3.1+cu121, built for CUDA 12.1" in result.output
+    assert "pass --force to replace it" in result.output
+    assert "pip install torch" not in result.output
+
+
+def test_fix_env_rejects_an_unknown_tool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    result = runner.invoke(app, ["fix-env", "alphafold"])
+    assert result.exit_code == 2
+    assert "Unknown tool" in result.output
