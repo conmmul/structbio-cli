@@ -7,6 +7,8 @@ from typer.testing import CliRunner
 
 from structbio import __version__
 from structbio.cli import app
+from structbio.config import load_settings
+from structbio.tools import get_backends
 
 
 runner = CliRunner()
@@ -531,3 +533,76 @@ def test_fix_env_rejects_an_unknown_tool(
     result = runner.invoke(app, ["fix-env", "alphafold"])
     assert result.exit_code == 2
     assert "Unknown tool" in result.output
+
+
+def test_a_cpu_only_torch_warns_but_does_not_block_a_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tiny_pdb: Path
+) -> None:
+    """Slow is not broken: the researcher decides whether to run anyway."""
+
+    checkout = _conda_tool(
+        tmp_path, monkeypatch, torch="__version__ = '2.3.1'\ncuda = None\n"
+    )
+    script = checkout / "protein_mpnn_run.py"
+    script.write_text("import sys\nprint('ran on cpu')\n")
+    monkeypatch.setenv(
+        "STRUCTBIO_USER_CONFIG", str(tmp_path / "user.yaml")
+    )
+    result = runner.invoke(
+        app, ["proteinmpnn", "design", str(tiny_pdb), "2", "out", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+
+    check = get_backends()["proteinmpnn"].check_environment(
+        load_settings().tools["proteinmpnn"]
+    )
+    assert check.found
+    assert any("CPU-only build" in warning for warning in check.warnings)
+
+
+def test_doctor_marks_a_degraded_installation_separately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch="__version__ = '2.3.1'\ncuda = None\n")
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "FOUND, DEGRADED" in result.output
+    assert "warning:" in result.output
+
+
+def test_fix_env_will_not_upgrade_a_pinned_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "RFdiffusion"
+    (checkout / "scripts").mkdir(parents=True)
+    (checkout / "scripts" / "run_inference.py").touch()
+    prefix = tmp_path / "envs" / "SE3nv"
+    torch_dir = prefix / "lib" / "python3.9" / "site-packages" / "torch"
+    torch_dir.mkdir(parents=True)
+    (torch_dir / "version.py").write_text("__version__ = '1.9.1.post3'\ncuda = None\n")
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {checkout}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: conda\n"
+        "    environment: SE3nv\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.setattr("structbio.environment.conda_environments", lambda: {"SE3nv": prefix})
+    monkeypatch.setattr("structbio.environment.shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        "structbio.environment.detect_gpu",
+        lambda: {"available": True, "models": [], "cuda_driver": "13.0"},
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr("structbio.cli.subprocess.run", lambda argv, **_: calls.append(argv))
+
+    result = runner.invoke(app, ["fix-env", "rfdiffusion", "--run", "--force", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "will not install PyTorch into it" in result.output
+    assert "pytorch=1.9 cudatoolkit=11.1" in result.output
+    assert "download.pytorch.org" not in result.output
+    assert calls == []

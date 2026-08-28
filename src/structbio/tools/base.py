@@ -6,11 +6,15 @@ import shlex
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 from structbio.config import ToolInstallation
+
+
+if TYPE_CHECKING:  # pragma: no cover
+    from structbio.environment import PinnedEnvironment
 
 
 @dataclass(frozen=True)
@@ -84,6 +88,7 @@ class EnvironmentCheck:
     executable: str | None = None
     details: tuple[str, ...] = ()
     problems: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
     remedies: tuple[str, ...] = ()
 
     def explain(self) -> str:
@@ -99,6 +104,9 @@ class ToolBackend(ABC):
     # True when the tool runs from a Conda environment the researcher builds,
     # and so can be missing PyTorch or have a build that ignores the GPU.
     needs_torch: bool = False
+    # Set when an upstream file fixes the environment's versions, in which case
+    # PyTorch must be repaired as that project defines it, never upgraded.
+    pinned_environment: "PinnedEnvironment | None" = None
 
     @abstractmethod
     def parse_config(self, raw: dict[str, Any], source: Path) -> BaseModel:
@@ -131,17 +139,19 @@ def standard_environment_check(
     default_executable: str,
     interface: str | None = None,
     needs_torch: bool = False,
+    pinned: "PinnedEnvironment | None" = None,
 ) -> EnvironmentCheck:
     """The reachability check shared by every backend."""
 
     from structbio.environment import diagnose_installation, executable_path
 
     executable = executable_path(installation)
-    problems, remedies = diagnose_installation(
+    problems, warnings, remedies = diagnose_installation(
         installation,
         tool=tool,
         default_executable=default_executable,
         needs_torch=needs_torch,
+        pinned=pinned,
     )
     details: list[str] = []
     if interface:
@@ -154,6 +164,7 @@ def standard_environment_check(
         executable=str(executable) if executable else None,
         details=tuple(details),
         problems=tuple(problems),
+        warnings=tuple(warnings),
         remedies=tuple(remedies),
     )
 

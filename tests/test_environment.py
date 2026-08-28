@@ -32,7 +32,7 @@ def _installation(**kwargs: object) -> ToolInstallation:
 
 
 def test_a_missing_path_is_named_with_a_fix(tmp_path: Path) -> None:
-    problems, remedies = diagnose_installation(
+    problems, _, remedies = diagnose_installation(
         _installation(path=tmp_path / "absent", executable="scripts/run_inference.py"),
         tool="rfdiffusion",
         default_executable="scripts/run_inference.py",
@@ -43,7 +43,7 @@ def test_a_missing_path_is_named_with_a_fix(tmp_path: Path) -> None:
 
 def test_an_incomplete_checkout_is_distinguished_from_a_missing_one(tmp_path: Path) -> None:
     (tmp_path / "RFdiffusion").mkdir()
-    problems, _ = diagnose_installation(
+    problems, _, _ = diagnose_installation(
         _installation(path=tmp_path / "RFdiffusion", executable="scripts/run_inference.py"),
         tool="rfdiffusion",
         default_executable="scripts/run_inference.py",
@@ -54,7 +54,7 @@ def test_an_incomplete_checkout_is_distinguished_from_a_missing_one(tmp_path: Pa
 
 def test_an_executable_expected_on_path_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("structbio.environment.shutil.which", lambda name: None)
-    problems, remedies = diagnose_installation(
+    problems, _, remedies = diagnose_installation(
         _installation(executable="colabfold_batch", manager="none"),
         tool="colabfold",
         default_executable="colabfold_batch",
@@ -79,7 +79,7 @@ def test_a_missing_conda_environment_is_reported(
         manager="conda",
         environment="SE3nv",
     )
-    problems, remedies = diagnose_installation(
+    problems, _, remedies = diagnose_installation(
         installation, tool="rfdiffusion", default_executable="scripts/run_inference.py"
     )
     assert any("'SE3nv' does not exist" in problem for problem in problems)

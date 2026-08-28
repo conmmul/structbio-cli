@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from structbio.config import ResourceConfig, ToolInstallation, resolve_from_config
+from structbio.environment import PinnedEnvironment
 from structbio.tools.base import (
     BackendContext,
     CommandPlan,
@@ -86,6 +87,20 @@ class RFDiffusionConfig(BaseModel):
         return self
 
 
+# RFdiffusion's env/SE3nv.yml pins pytorch=1.9 with cudatoolkit=11.1 and
+# dgl-cuda11.1, and lists conda-forge ahead of the pytorch channel, so conda
+# readily resolves a CPU-only pytorch build. Installing a current PyTorch to
+# fix that breaks the checkout: SE3Transformer is built against the pinned one.
+SE3NV = PinnedEnvironment(
+    file="RFdiffusion's env/SE3nv.yml",
+    pins="pytorch=1.9 with cudatoolkit=11.1 and dgl-cuda11.1",
+    repair=(
+        "conda install -n {environment} -c pytorch -c nvidia "
+        "pytorch=1.9 cudatoolkit=11.1"
+    ),
+    note="SE3Transformer in this checkout is built against the pinned version",
+)
+
 _HYDRA_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 _SYMMETRY_RE = re.compile(r"^(?:c[2-9]\d*|d[2-9]\d*|tetrahedral)$", re.IGNORECASE)
 _PDB_POSITION_RE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z])(-?\d+)(?:-(-?\d+))?")
@@ -100,6 +115,7 @@ class RFDiffusionBackend(ToolBackend):
     display_name = "RFdiffusion"
     config_model = RFDiffusionConfig
     needs_torch = True
+    pinned_environment = SE3NV
 
     def parse_config(self, raw: dict[str, Any], source: Path) -> RFDiffusionConfig:
         selected = {
@@ -238,6 +254,7 @@ class RFDiffusionBackend(ToolBackend):
             tool=self.name,
             default_executable="scripts/run_inference.py",
             needs_torch=True,
+            pinned=SE3NV,
         )
 
 

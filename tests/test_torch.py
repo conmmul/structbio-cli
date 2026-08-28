@@ -73,8 +73,9 @@ def test_missing_torch_is_reported_with_a_command(
     monkeypatch.setattr(environment, "driver_cuda_version", lambda: (12, 4))
     monkeypatch.setattr(environment, "detect_gpu", lambda: {"available": True, "models": [], "cuda_driver": "12.4"})
 
-    problems, remedies = diagnose_torch("mlfold")
+    problems, warnings, remedies = diagnose_torch("mlfold")
     assert any("PyTorch is not installed" in problem for problem in problems)
+    assert warnings == []
     assert any("whl/cu124" in remedy for remedy in remedies)
 
 
@@ -86,8 +87,10 @@ def test_a_cpu_build_on_a_gpu_machine_is_reported(
     monkeypatch.setattr(environment, "driver_cuda_version", lambda: (12, 4))
     monkeypatch.setattr(environment, "detect_gpu", lambda: {"available": True, "models": [], "cuda_driver": "12.4"})
 
-    problems, _ = diagnose_torch("mlfold")
-    assert any("CPU-only build" in problem for problem in problems)
+    problems, warnings, _ = diagnose_torch("mlfold")
+    # Slow is not the same as broken: this must not stop a run.
+    assert problems == []
+    assert any("CPU-only build" in warning for warning in warnings)
 
 
 def test_a_cpu_build_is_fine_without_a_gpu(
@@ -98,8 +101,8 @@ def test_a_cpu_build_is_fine_without_a_gpu(
     monkeypatch.setattr(environment, "driver_cuda_version", lambda: None)
     monkeypatch.setattr(environment, "detect_gpu", lambda: {"available": False, "models": [], "cuda_driver": None})
 
-    problems, _ = diagnose_torch("mlfold")
-    assert problems == []
+    problems, warnings, _ = diagnose_torch("mlfold")
+    assert (problems, warnings) == ([], [])
 
 
 def test_a_build_newer_than_the_driver_is_reported(
@@ -112,7 +115,8 @@ def test_a_build_newer_than_the_driver_is_reported(
     monkeypatch.setattr(environment, "driver_cuda_version", lambda: (11, 8))
     monkeypatch.setattr(environment, "detect_gpu", lambda: {"available": True, "models": [], "cuda_driver": "11.8"})
 
-    problems, remedies = diagnose_torch("mlfold")
+    problems, _, remedies = diagnose_torch("mlfold")
+    # A wheel the driver cannot run does stop a run.
     assert any("built for CUDA 12.1" in problem for problem in problems)
     assert any("whl/cu118" in remedy for remedy in remedies)
 
@@ -125,9 +129,35 @@ def test_a_matching_build_reports_nothing(
     monkeypatch.setattr(environment, "driver_cuda_version", lambda: (12, 4))
     monkeypatch.setattr(environment, "detect_gpu", lambda: {"available": True, "models": [], "cuda_driver": "12.4"})
 
-    assert diagnose_torch("mlfold") == ([], [])
+    assert diagnose_torch("mlfold") == ([], [], [])
 
 
 def test_an_unknown_environment_is_not_diagnosed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(environment, "conda_environments", dict)
-    assert diagnose_torch("absent") == ([], [])
+    assert diagnose_torch("absent") == ([], [], [])
+
+
+def test_a_pinned_environment_is_never_told_to_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrading torch inside RFdiffusion's SE3nv breaks SE3Transformer."""
+
+    from structbio.tools.rfdiffusion import SE3NV
+
+    prefix = _env_with_torch(tmp_path / "env", CPU_VERSION_FILE)
+    monkeypatch.setattr(environment, "conda_environments", lambda: {"SE3nv": prefix})
+    monkeypatch.setattr(environment, "driver_cuda_version", lambda: (13, 0))
+    monkeypatch.setattr(
+        environment,
+        "detect_gpu",
+        lambda: {"available": True, "models": [], "cuda_driver": "13.0"},
+    )
+
+    _, warnings, remedies = diagnose_torch("SE3nv", pinned=SE3NV)
+    assert any("CPU-only build" in warning for warning in warnings)
+    joined = " ".join(remedies)
+    # It must not suggest the newest wheel, which is what broke this before.
+    assert "download.pytorch.org" not in joined
+    assert "cu130" not in joined
+    assert "pytorch=1.9 cudatoolkit=11.1" in joined
+    assert "SE3Transformer" in joined

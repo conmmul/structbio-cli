@@ -182,6 +182,11 @@ def _require_installed(loaded: LoadedConfig, backend: ToolBackend) -> Any:
     installation = _installation(loaded, backend)
     environment = backend.check_environment(installation)
     if environment.found:
+        for warning in environment.warnings:
+            typer.echo(f"WARNING: {warning}")
+        if environment.warnings and environment.remedies:
+            for remedy in environment.remedies:
+                typer.echo(f"         {remedy}")
         return installation
     lines = [f"{backend.display_name} is not available on this machine."]
     lines.extend(f"  {problem}" for problem in environment.problems or ("reason unknown",))
@@ -959,6 +964,16 @@ def fix_env(
             state = f"PyTorch {torch.version}, {built}"
         typer.echo(f"{backend.display_name:<14} {installation.environment}: {state}")
 
+        pinned = getattr(backend, "pinned_environment", None)
+        if pinned is not None:
+            typer.echo(
+                f"{'':<14} this environment is defined by {pinned.file}, so structbio "
+                "will not install PyTorch into it"
+            )
+            for remedy in pinned.remedies(installation.environment):
+                typer.echo(f"{'':<14} {remedy}")
+            continue
+
         if torch is not None and not force:
             typer.echo(f"{'':<14} already installed; pass --force to replace it")
             continue
@@ -1203,7 +1218,9 @@ def doctor() -> None:
         installation = settings.tools.get(backend.name)
         check = backend.check_environment(installation) if installation else None
         status = "FOUND" if check and check.found else "NOT CONFIGURED"
-        if check and check.configured and not check.found:
+        if check and check.found and check.warnings:
+            status = "FOUND, DEGRADED"
+        elif check and check.configured and not check.found:
             status = "CONFIGURED, UNAVAILABLE"
         typer.echo(f"{backend.display_name:<22} {status}")
         if check:
@@ -1211,6 +1228,8 @@ def doctor() -> None:
                 typer.echo(f"{'':<22} {detail}")
             for problem in check.problems:
                 typer.echo(f"{'':<22} {problem}")
+            for warning in check.warnings:
+                typer.echo(f"{'  warning:':<22} {warning}")
             for remedy in check.remedies:
                 typer.echo(f"{'  fix:':<22} {remedy}")
         elif installation is None:

@@ -300,7 +300,12 @@ The three things it distinguishes, and what each means:
 | `... exists but does not contain scripts/run_inference.py` | The folder is there but the download was incomplete, or it is a different project. |
 | `the conda environment 'X' does not exist` | The code is there but its software environment was never created — usually the install steps were stopped partway. |
 | `PyTorch is not installed in the conda environment 'X'` | The environment exists but is empty of the maths library the tool needs. See below. |
-| `PyTorch ... is a CPU-only build` | It will work, but slowly, ignoring the graphics card entirely. |
+| `PyTorch ... is a CPU-only build` | A warning, not an error. It will run, but on the processor rather than the graphics card, so far more slowly. |
+| `PyTorch ... was built for CUDA X, which this driver cannot run` | The wrong version was installed for this machine's graphics driver. |
+
+A tool can also show `FOUND, DEGRADED`. That means it will run, but something
+will make it slower or worse — almost always a CPU-only PyTorch. You can go
+ahead; the warning repeats every time you run.
 
 ### PyTorch problems
 
@@ -334,6 +339,27 @@ It will ask before installing anything, and it leaves a working PyTorch alone
 unless you add `--force`. If it says `no NVIDIA driver found`, you are on a
 machine without a graphics card and will get the CPU build, which is correct
 there — ProteinMPNN runs fine on a CPU, RFdiffusion realistically does not.
+
+#### RFdiffusion is a special case
+
+RFdiffusion's environment is built from a file, `env/SE3nv.yml`, that fixes
+which version of everything gets installed — including an old PyTorch that the
+rest of the checkout is built against. **Installing a newer PyTorch there will
+break it**, so `structbio fix-env` refuses to, and tells you the right repair
+instead:
+
+```text
+RFdiffusion    SE3nv: PyTorch 1.9.1.post3, CPU-only build
+               this environment is defined by RFdiffusion's env/SE3nv.yml, so
+               structbio will not install PyTorch into it
+               repair it with: conda install -n SE3nv -c pytorch -c nvidia pytorch=1.9 cudatoolkit=11.1
+               or rebuild it: conda env remove -n SE3nv, then re-create it from RFdiffusion's env/SE3nv.yml
+```
+
+This happens because `env/SE3nv.yml` lists the general-purpose conda channels
+before the PyTorch one, so conda often picks a version of PyTorch built without
+graphics-card support. It is a quirk of the upstream file, not a mistake you
+made.
 
 Run the `fix:` line that matches. If you have the tool installed somewhere
 else, `structbio detect` will find it and `structbio setup --update` will record

@@ -165,6 +165,30 @@ TORCH_INDEX = "https://download.pytorch.org/whl/"
 
 
 @dataclass(frozen=True)
+class PinnedEnvironment:
+    """An environment whose versions an upstream file fixes.
+
+    Upgrading PyTorch inside one of these breaks the tool: the rest of the
+    environment was solved against the pinned version. The remedy has to repair
+    the environment as the project defines it, never install a newer wheel.
+    """
+
+    file: str
+    pins: str
+    repair: str
+    note: str
+
+    def remedies(self, environment: str) -> list[str]:
+        return [
+            f"{self.file} pins {self.pins}, so do not install a newer PyTorch here: "
+            f"{self.note}",
+            f"repair it with: {self.repair.format(environment=environment)}",
+            f"or rebuild it: conda env remove -n {environment}, then re-create it from "
+            f"{self.file}",
+        ]
+
+
+@dataclass(frozen=True)
 class TorchInstall:
     """What a PyTorch installation is, read without importing it."""
 
@@ -234,42 +258,58 @@ def find_torch(prefix: Path) -> TorchInstall | None:
     return None
 
 
-def diagnose_torch(environment: str) -> tuple[list[str], list[str]]:
-    """Check the PyTorch inside a conda environment against this machine's GPU."""
+def diagnose_torch(
+    environment: str, *, pinned: PinnedEnvironment | None = None
+) -> tuple[list[str], list[str], list[str]]:
+    """Check a conda environment's PyTorch. Returns problems, warnings, remedies.
+
+    A missing or undersupported build stops a run; a CPU-only build only makes
+    it slow, so that is a warning and the researcher decides.
+    """
 
     problems: list[str] = []
+    warnings: list[str] = []
     remedies: list[str] = []
     prefix = conda_environments().get(environment)
     if prefix is None:
-        return problems, remedies
+        return problems, warnings, remedies
 
     driver = driver_cuda_version()
     build = select_torch_build(driver)
-    command = " ".join(torch_install_command(environment, build))
+    upgrade = " ".join(torch_install_command(environment, build))
     torch = find_torch(prefix)
 
     if torch is None:
         problems.append(f"PyTorch is not installed in the conda environment {environment!r}")
-        remedies.append(f"structbio fix-env, or run: {command}")
-        return problems, remedies
+        remedies.extend(
+            pinned.remedies(environment) if pinned else [f"structbio fix-env, or run: {upgrade}"]
+        )
+        return problems, warnings, remedies
 
     gpu_present = bool(detect_gpu()["available"])
     if torch.cpu_only and gpu_present:
-        problems.append(
-            f"PyTorch {torch.version} in {environment!r} is a CPU-only build, "
-            "so this machine's GPU will not be used"
+        warnings.append(
+            f"PyTorch {torch.version} in {environment!r} is a CPU-only build, so this "
+            "machine's GPU will not be used and runs will be very slow"
         )
-        remedies.append(f"structbio fix-env --force, or run: {command}")
+        remedies.extend(
+            pinned.remedies(environment)
+            if pinned
+            else [f"structbio fix-env --force, or run: {upgrade}"]
+        )
     elif torch.cuda and driver:
         built = tuple(int(part) for part in torch.cuda.split(".")[:2])
         if built > driver:
             problems.append(
                 f"PyTorch {torch.version} in {environment!r} was built for CUDA "
-                f"{torch.cuda}, but the driver supports only "
-                f"{driver[0]}.{driver[1]}"
+                f"{torch.cuda}, which this driver ({driver[0]}.{driver[1]}) cannot run"
             )
-            remedies.append(f"structbio fix-env --force, or run: {command}")
-    return problems, remedies
+            remedies.extend(
+                pinned.remedies(environment)
+                if pinned
+                else [f"structbio fix-env --force, or run: {upgrade}"]
+            )
+    return problems, warnings, remedies
 
 
 def diagnose_installation(
@@ -278,14 +318,18 @@ def diagnose_installation(
     tool: str,
     default_executable: str,
     needs_torch: bool = False,
-) -> tuple[list[str], list[str]]:
-    """Say exactly why a configured tool cannot be reached, and what to do.
+    pinned: PinnedEnvironment | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    """Say why a configured tool cannot be reached, and what to do about it.
 
-    "Configured but unavailable" has several quite different causes, and a
-    researcher cannot act on the difference unless it is spelled out.
+    Returns problems that stop a run, warnings that only degrade it, and the
+    remedies for both. "Configured but unavailable" has several quite different
+    causes, and a researcher cannot act on the difference unless it is spelled
+    out.
     """
 
     problems: list[str] = []
+    warnings: list[str] = []
     remedies: list[str] = []
     name = installation.executable or default_executable
 
@@ -325,14 +369,17 @@ def diagnose_installation(
                     "or correct 'environment' in the configuration"
                 )
             elif needs_torch:
-                torch_problems, torch_remedies = diagnose_torch(installation.environment)
-                problems.extend(torch_problems)
-                remedies.extend(torch_remedies)
+                found, degraded, fixes = diagnose_torch(
+                    installation.environment, pinned=pinned
+                )
+                problems.extend(found)
+                warnings.extend(degraded)
+                remedies.extend(fixes)
     elif installation.manager == "pixi" and shutil.which("pixi") is None:
         problems.append("pixi is not installed")
         remedies.append("curl -fsSL https://pixi.sh/install.sh | bash")
 
-    return problems, remedies
+    return problems, warnings, remedies
 
 
 def detect_unwrapped_tools() -> dict[str, str | None]:

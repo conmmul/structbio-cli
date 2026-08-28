@@ -57,8 +57,8 @@ line. The distinctions it makes:
 | `the conda environment 'X' does not exist` | The code is present but its environment was never created; the install steps were probably stopped partway. |
 | `pixi is not installed` | Needed by CryoZeta. |
 | `PyTorch is not installed in the conda environment 'X'` | The environment exists but the tool's main dependency is absent. |
-| `PyTorch ... is a CPU-only build` | It runs, ignoring the GPU. |
-| `PyTorch ... was built for CUDA X, but the driver supports only Y` | The wheel is newer than the driver and will fail at import. |
+| `PyTorch ... is a CPU-only build` | A warning, not a failure: it runs, ignoring the GPU. The tool reports `FOUND, DEGRADED`. |
+| `PyTorch ... was built for CUDA X, which this driver cannot run` | Fatal: the wheel is newer than the driver and fails at import. |
 
 ### PyTorch
 
@@ -74,6 +74,25 @@ installation is too broken to import.
 The choice is deliberately conservative: a wheel built for a newer CUDA than
 the driver will not run, so a driver reporting 12.0 is given `cu118` rather
 than `cu121`.
+
+### Environments a project pins
+
+RFdiffusion's `env/SE3nv.yml` fixes `pytorch=1.9` with `cudatoolkit=11.1` and
+`dgl-cuda11.1`, and lists conda-forge ahead of the pytorch channel, so conda
+readily resolves a CPU-only build there. Installing a current PyTorch to fix
+that breaks the checkout, because SE3Transformer is built against the pinned
+version.
+
+`structbio fix-env` therefore refuses to touch such an environment and prints
+the repair the project's own pins imply:
+
+```bash
+conda install -n SE3nv -c pytorch -c nvidia pytorch=1.9 cudatoolkit=11.1
+```
+
+Rebuilding the environment from the file is the alternative. A backend declares
+this by setting `pinned_environment`; without it, a plain PyTorch install is
+offered instead.
 
 A tool that lives on a shared filesystem is only usable from a machine that
 mounts it. If a tool is installed somewhere structbio does not know about,
