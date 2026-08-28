@@ -1,0 +1,23 @@
+tool: rfdiffusion
+
+experiment:
+  name: diversify_complex
+
+input:
+  pdb: /absolute/path/to/complex.pdb
+
+design:
+  mode: partial
+  contigs:
+    - 100-100/0 B1-150
+  num_designs: 20
+
+diffusion:
+  timesteps: 50
+  partial_t: 20
+
+resources:
+  gpus: 1
+  cpus: 8
+  memory: 32G
+  time: 04:00:00

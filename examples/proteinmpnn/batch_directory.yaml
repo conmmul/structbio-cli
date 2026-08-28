@@ -1,0 +1,23 @@
+tool: proteinmpnn
+
+experiment:
+  name: backbone_batch
+
+input:
+  directory: /absolute/path/to/backbones
+
+design:
+  chains: [A]
+  num_sequences: 8
+  temperatures: [0.1]
+  batch_size: 1
+  seed: 37
+
+constraints:
+  omit_aas: X
+
+resources:
+  gpus: 1
+  cpus: 4
+  memory: 16G
+  time: 02:00:00

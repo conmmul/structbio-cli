@@ -1,0 +1,18 @@
+tool: rfdiffusion
+
+experiment:
+  name: monomer150
+
+input:
+  pdb: null
+
+design:
+  mode: monomer
+  length: 150
+  num_designs: 10
+
+resources:
+  gpus: 1
+  cpus: 8
+  memory: 32G
+  time: 02:00:00

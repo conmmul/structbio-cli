@@ -1,0 +1,21 @@
+[
+  {
+    "name": "my_target",
+    "modelSeeds": [],
+    "map_path": "/absolute/path/to/my_target.map.gz",
+    "resolution": 3.2,
+    "contour_level": 0.25,
+    "sequences": [
+      {
+        "proteinChain": {
+          "sequence": "REPLACE_WITH_THE_FULL_PROTEIN_SEQUENCE",
+          "count": 1,
+          "msa": {
+            "precomputed_msa_dir": "/absolute/path/to/chain_a_msa",
+            "pairing_db": "uniref100"
+          }
+        }
+      }
+    ]
+  }
+]

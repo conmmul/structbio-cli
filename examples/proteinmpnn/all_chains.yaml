@@ -1,0 +1,23 @@
+tool: proteinmpnn
+
+experiment:
+  name: all_chain_design
+
+input:
+  pdb: /absolute/path/to/backbone.pdb
+
+design:
+  num_sequences: 8
+  temperatures: [0.1]
+  batch_size: 1
+  seed: 37
+  soluble_model: false
+
+constraints:
+  omit_aas: X
+
+resources:
+  gpus: 1
+  cpus: 4
+  memory: 16G
+  time: 01:00:00

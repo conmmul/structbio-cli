@@ -1,0 +1,20 @@
+tool: rfdiffusion
+
+experiment:
+  name: target_binder
+
+input:
+  pdb: /absolute/path/to/target.pdb
+
+design:
+  mode: binder
+  contigs:
+    - B1-100/0 100-100
+  hotspot_residues: [B30, B33, B34]
+  num_designs: 100
+
+resources:
+  gpus: 1
+  cpus: 8
+  memory: 32G
+  time: 04:00:00
