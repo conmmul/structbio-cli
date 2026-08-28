@@ -285,3 +285,72 @@ def test_an_unreadable_environment_is_not_condemned(
 ) -> None:
     monkeypatch.setattr(provision, "environment_facts", lambda name: {})
     assert provision.unusable_python("SE3nv") is None
+
+
+def test_the_environments_own_interpreter_is_used(tmp_path: Path, monkeypatch) -> None:
+    """conda run resolves through PATH and can answer with the base Python."""
+
+    prefix = tmp_path / "envs" / "SE3nv"
+    (prefix / "bin").mkdir(parents=True)
+    interpreter = prefix / "bin" / "python"
+    interpreter.touch()
+    monkeypatch.setattr(
+        provision.environment, "conda_environments", lambda: {"SE3nv": prefix}
+    )
+    assert provision.environment_python("SE3nv") == interpreter
+
+
+def test_an_environment_without_an_interpreter_is_reported_as_such(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty prefix means the creation step did not finish."""
+
+    prefix = tmp_path / "envs" / "SE3nv"
+    prefix.mkdir(parents=True)
+    monkeypatch.setattr(
+        provision.environment, "conda_environments", lambda: {"SE3nv": prefix}
+    )
+    assert provision.environment_python("SE3nv") is None
+    facts = provision.environment_facts("SE3nv")
+    assert facts["missing_python"] == str(prefix)
+
+    message = provision.unusable_python("SE3nv")
+    assert message is not None
+    assert "contains no Python interpreter" in message
+    assert "did not finish" in message
+
+
+def test_the_real_interpreter_is_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the facts probe against a genuine interpreter, end to end."""
+
+    import sys
+
+    prefix = tmp_path / "envs" / "real"
+    (prefix / "bin").mkdir(parents=True)
+    link = prefix / "bin" / "python"
+    link.symlink_to(sys.executable)
+    monkeypatch.setattr(
+        provision.environment, "conda_environments", lambda: {"real": prefix}
+    )
+    facts = provision.environment_facts("real")
+    assert facts["python"].startswith("3.")
+    assert facts["tag"].startswith("cp3")
+    assert "x86_64" in facts["platform"] or "arm64" in facts["platform"]
+
+
+def test_the_reported_python_path_is_included_in_the_complaint(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        provision,
+        "environment_facts",
+        lambda name: {
+            "python": "3.14.6",
+            "tag": "cp314",
+            "platform": "linux-x86_64",
+            "executable": "/opt/anaconda3/bin/python",
+        },
+    )
+    message = provision.unusable_python("SE3nv")
+    assert "/opt/anaconda3/bin/python" in message
+    assert "not inside that environment" in message

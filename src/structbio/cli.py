@@ -1082,6 +1082,11 @@ def env_create(
             if mismatch:
                 typer.echo("\n" + mismatch, err=True)
                 raise typer.Exit(1)
+            facts = provision.environment_facts(plan.environment)
+            if facts.get("python"):
+                typer.echo(
+                    f"     Python {facts['python']} at {facts.get('executable', '?')}"
+                )
         if returncode:
             typer.echo(
                 f"\nStep {index} failed with exit code {returncode}:\n"

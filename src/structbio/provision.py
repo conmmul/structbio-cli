@@ -216,6 +216,24 @@ FACTS_PROBE = (
 )
 
 
+def environment_python(name: str) -> Path | None:
+    """The interpreter belonging to an environment, by path.
+
+    Not `conda run -n NAME python`: that resolves through PATH, so an
+    environment missing its own interpreter silently answers with the base
+    one, and every version reported afterwards is about the wrong Python.
+    """
+
+    prefix = environment.conda_environments().get(name)
+    if prefix is None:
+        return None
+    for relative in ("bin/python", "python.exe", "bin/python3"):
+        candidate = prefix / relative
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def environment_facts(name: str) -> dict[str, str]:
     """The Python version and platform inside an environment, for diagnostics.
 
@@ -223,9 +241,13 @@ def environment_facts(name: str) -> dict[str, str]:
     these two, and neither appears in pip's message.
     """
 
+    interpreter = environment_python(name)
+    if interpreter is None:
+        prefix = environment.conda_environments().get(name)
+        return {"missing_python": str(prefix) if prefix else "", "environment": name}
     try:
         completed = subprocess.run(
-            ["conda", "run", "-n", name, "python", "-c", FACTS_PROBE],
+            [str(interpreter), "-c", FACTS_PROBE],
             capture_output=True,
             text=True,
             timeout=120,
@@ -251,15 +273,25 @@ def unusable_python(name: str) -> str | None:
     """
 
     facts = environment_facts(name)
+    if "missing_python" in facts:
+        where = facts["missing_python"] or "an unknown location"
+        return (
+            f"{name} exists at {where} but contains no Python interpreter, so the "
+            "step that was supposed to create it did not finish. Nothing was "
+            f"downloaded.\nRemove it with 'conda env remove -n {name}' and re-run; "
+            "if it fails again, the conda output from the first step is what to send."
+        )
     tag = facts.get("tag")
     if not tag or tag in SUPPORTED_PYTHON_TAGS:
         return None
     return (
-        f"{name} was built with Python {facts.get('python', tag)}, which PyTorch "
-        f"and DGL publish no CUDA wheels for; they cover "
+        f"{name} has Python {facts.get('python', tag)} at "
+        f"{facts.get('executable', 'an unknown path')}, which PyTorch and DGL "
+        f"publish no CUDA wheels for; they cover "
         f"{', '.join(SUPPORTED_PYTHON_TAGS)}. Nothing was downloaded.\n"
-        f"Remove it with 'conda env remove -n {name}' and re-run, or report this: "
-        "structbio asked conda for a supported Python and did not get one."
+        f"Remove it with 'conda env remove -n {name}' and re-run. If the path above "
+        "is not inside that environment, conda answered with a different Python "
+        "than the environment's own, which is worth reporting."
     )
 
 
