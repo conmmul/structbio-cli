@@ -14,7 +14,15 @@ from typing import Any
 import typer
 from pydantic import ValidationError
 
-from structbio import __version__, discovery, environment, install, quick, wrappers
+from structbio import (
+    __version__,
+    discovery,
+    environment,
+    install,
+    provision,
+    quick,
+    wrappers,
+)
 from structbio.config import (
     USER_CONFIG_TEMPLATE,
     LoadedConfig,
@@ -194,6 +202,12 @@ def _require_installed(loaded: LoadedConfig, backend: ToolBackend) -> Any:
         lines.append("")
         lines.append("To fix it:")
         lines.extend(f"  {remedy}" for remedy in environment.remedies)
+    if backend.needs_torch and installation.environment:
+        lines.append("")
+        lines.append(
+            f"  structbio env create {backend.name}   builds a working environment "
+            "for this machine, or explains why none exists"
+        )
     typer.echo("Error: " + "\n".join(lines), err=True)
     raise typer.Exit(2)
 
@@ -904,6 +918,149 @@ def _update_config(config_path: Path, found: dict[str, discovery.Discovery]) -> 
     backup.write_text(existing, encoding="utf-8")
     config_path.write_text(merged, encoding="utf-8")
     typer.echo(f"Updated {config_path} (previous version saved as {backup.name}).")
+
+
+env_app = typer.Typer(
+    help=(
+        "Build and check the environments the tools run in.\n\n"
+        "  structbio env create rfdiffusion\n"
+        "  structbio env verify rfdiffusion"
+    ),
+    no_args_is_help=True,
+)
+app.add_typer(env_app, name="env")
+
+
+def _installation_for(tool: str) -> tuple[Any, str]:
+    settings = load_settings()
+    backends = get_backends()
+    if tool not in backends:
+        _abort(f"Unknown tool {tool!r}; known tools: {', '.join(sorted(backends))}")
+    installation = settings.tools.get(tool)
+    if installation is None:
+        _abort(f"No installation is configured for {tool}; run 'structbio setup'")
+    return installation, installation.environment or ""
+
+
+def _show_plan(plan: provision.EnvironmentPlan) -> None:
+    for note in plan.notes:
+        typer.echo(f"  {note}")
+    if plan.notes:
+        typer.echo("")
+    if not plan.upstream_verified:
+        typer.echo("  These versions are not an upstream-published combination.\n")
+    for index, step in enumerate(plan.steps, start=1):
+        typer.echo(f"  {index}. {step.description}")
+        typer.echo(f"     {step.render()}")
+
+
+def _report_probe(tool: str, name: str, result: provision.ProbeResult) -> bool:
+    failures = result.failures()
+    if result.ok:
+        typer.echo(f"  {result.summary()}")
+    for failure in failures:
+        typer.echo(f"  FAILED: {failure}")
+    if not failures:
+        typer.echo(f"  {name} is ready for {tool}.")
+        return True
+    return False
+
+
+@env_app.command("verify")
+def env_verify(
+    tool: str = typer.Argument(..., help="rfdiffusion or proteinmpnn"),
+) -> None:
+    """Run code in the tool's environment to prove it actually works.
+
+    This allocates memory on the GPU, which is what catches a PyTorch that was
+    built without support for this particular card: importing it and asking
+    whether CUDA is available both succeed in that case.
+    """
+
+    installation, name = _installation_for(tool)
+    if not name:
+        _abort(f"No conda environment is configured for {tool}")
+    if not provision.environment_exists(name):
+        _abort(f"The conda environment {name!r} does not exist; run 'structbio env create {tool}'")
+    typer.echo(f"Checking {name}...")
+    if not _report_probe(tool, name, provision.verify(tool, name)):
+        typer.echo(f"\nRebuild it with: structbio env create {tool} --force")
+        raise typer.Exit(1)
+
+
+@env_app.command("create")
+def env_create(
+    tool: str = typer.Argument(..., help="rfdiffusion or proteinmpnn"),
+    force: bool = typer.Option(False, "--force", help="Replace an existing environment"),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask before building"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the plan and build nothing"),
+) -> None:
+    """Build the environment this machine needs, then prove it works.
+
+    The versions are chosen from the GPU actually present. Where no working
+    combination exists, this says so rather than building something that cannot
+    run.
+    """
+
+    installation, configured = _installation_for(tool)
+    plan = provision.plan_environment(tool, installation)
+    typer.echo(f"{tool}: environment {plan.environment}\n")
+
+    if plan.blocked:
+        typer.echo(f"Cannot build this environment: {plan.blocked}\n")
+        if plan.alternatives:
+            typer.echo("What you can do instead:")
+            for alternative in plan.alternatives:
+                typer.echo(f"  {alternative}")
+        raise typer.Exit(1)
+
+    _show_plan(plan)
+    if dry_run:
+        typer.echo("\nDry run: nothing was built.")
+        return
+
+    exists = provision.environment_exists(plan.environment)
+    if exists and not force:
+        typer.echo(
+            f"\n{plan.environment} already exists. Check it with "
+            f"'structbio env verify {tool}', or rebuild it with --force."
+        )
+        raise typer.Exit(1)
+    if not yes and not typer.confirm(
+        f"\nBuild {plan.environment} now? This downloads several GB"
+    ):
+        typer.echo("Nothing was built.")
+        raise typer.Exit(1)
+    if exists:
+        typer.echo(f"Removing the existing {plan.environment}...")
+        subprocess.run(
+            ["conda", "env", "remove", "-y", "-n", plan.environment], check=False
+        )
+
+    for index, step in enumerate(plan.steps, start=1):
+        typer.echo(f"\n[{index}/{len(plan.steps)}] {step.description}")
+        result = subprocess.run(list(step.argv), check=False)
+        if result.returncode:
+            typer.echo(
+                f"\nStep {index} failed with exit code {result.returncode}: "
+                f"{step.render()}",
+                err=True,
+            )
+            raise typer.Exit(result.returncode)
+
+    typer.echo("\nBuilt. Checking that it really works...")
+    if not _report_probe(tool, plan.environment, provision.verify(tool, plan.environment)):
+        typer.echo(
+            "\nThe environment built but does not work. Nothing was removed, so "
+            "the output above can be sent to whoever supports this workstation.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if configured != plan.environment:
+        typer.echo(
+            f"\nRecord it with: structbio setup --update, or set "
+            f"'environment: {plan.environment}' for {tool} in the configuration."
+        )
 
 
 @app.command("fix-env")

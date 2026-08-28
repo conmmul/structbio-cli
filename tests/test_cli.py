@@ -606,3 +606,61 @@ def test_fix_env_will_not_upgrade_a_pinned_environment(
     assert "pytorch=1.9 cudatoolkit=11.1" in result.output
     assert "download.pytorch.org" not in result.output
     assert calls == []
+
+
+def test_a_failed_run_points_at_env_create(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tiny_pdb: Path
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    result = runner.invoke(app, ["proteinmpnn", "design", str(tiny_pdb), "2", "out"])
+    assert result.exit_code == 2
+    assert "structbio env create proteinmpnn" in result.output
+
+
+def test_env_create_dry_run_builds_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    calls: list[object] = []
+    monkeypatch.setattr("structbio.cli.subprocess.run", lambda *a, **k: calls.append(a))
+    result = runner.invoke(app, ["env", "create", "proteinmpnn", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "conda create -y -n mlfold" in result.output
+    assert "Dry run: nothing was built" in result.output
+    assert calls == []
+
+
+def test_env_create_refuses_when_no_combination_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "RFdiffusion"
+    (checkout / "scripts").mkdir(parents=True)
+    (checkout / "scripts" / "run_inference.py").touch()
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {checkout}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: conda\n"
+        "    environment: SE3nv\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.setattr("structbio.environment.gpu_capabilities", lambda: [(12, 0)])
+    monkeypatch.setattr("structbio.environment.driver_cuda_version", lambda: (13, 0))
+
+    result = runner.invoke(app, ["env", "create", "rfdiffusion"])
+    assert result.exit_code == 1
+    assert "Cannot build this environment" in result.output
+    assert "What you can do instead" in result.output
+
+
+def test_env_verify_needs_the_environment_to_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    monkeypatch.setattr("structbio.environment.conda_environments", dict)
+    result = runner.invoke(app, ["env", "verify", "proteinmpnn"])
+    assert result.exit_code == 2
+    assert "does not exist" in result.output

@@ -217,7 +217,37 @@ structbio --version
 
 A version number means setup worked.
 
-### Step 6 — install any missing tools
+### Step 6 — build the software environments
+
+For RFdiffusion and ProteinMPNN, one command sets up everything they need —
+the environment, PyTorch, and the graphics-card libraries — choosing versions
+that match the card in this machine:
+
+```bash
+structbio env create proteinmpnn
+structbio env create rfdiffusion
+```
+
+Add `--dry-run` first to see exactly what it will install without installing
+it. It asks before starting, and it downloads several gigabytes, so it takes a
+while.
+
+When it finishes it does not simply claim success: it runs code on the graphics
+card to prove the environment works, and tells you if it does not. You can
+repeat that check at any time:
+
+```bash
+structbio env verify rfdiffusion
+```
+
+If it says the environment cannot be built for this machine, read what it says
+carefully and take it to whoever runs the workstation. It means no combination
+of versions exists, not that you did something wrong.
+
+ColabFold and CryoZeta manage their own environments, so they are not listed
+here; follow their own setup steps instead.
+
+### Step 7 — install any missing tools
 
 For anything reported as `not found`:
 

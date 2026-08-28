@@ -105,9 +105,21 @@ structbio tools
 structbio config
 ```
 
-If a tool reports a missing or mismatched PyTorch, `structbio fix-env` works
-out the build this machine's driver needs and prints the command; `--run`
-installs it.
+RFdiffusion and ProteinMPNN need a Conda environment with a PyTorch matching
+the GPU. One command builds it, choosing versions from the card actually
+present, and then proves it works by computing on that card:
+
+```bash
+structbio env create rfdiffusion
+structbio env verify rfdiffusion
+```
+
+Where no working combination of versions exists — an RTX 50-series card, for
+instance, which needs CUDA 12.8 while DGL publishes nothing past 12.4 — it says
+so and stops, rather than building something that cannot run.
+
+For a smaller repair to an existing environment, `structbio fix-env` prints the
+PyTorch command this machine needs; `--run` performs it.
 
 A tool is ready only when `doctor` reports it as `FOUND`.
 
