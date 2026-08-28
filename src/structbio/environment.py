@@ -67,6 +67,34 @@ def detect_gpu() -> dict[str, Any]:
     }
 
 
+def gpu_free_memory() -> list[tuple[int, int]]:
+    """Return (index, free MiB) per GPU, most free first."""
+
+    output = command_output(
+        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+        only_on_success=True,
+    )
+    if not output:
+        return []
+    entries: list[tuple[int, int]] = []
+    for line in output.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) != 2:
+            continue
+        try:
+            entries.append((int(fields[0]), int(fields[1])))
+        except ValueError:
+            continue
+    return sorted(entries, key=lambda item: (-item[1], item[0]))
+
+
+def select_idle_gpu() -> int | None:
+    """Pick the GPU with the most free memory, or None without nvidia-smi."""
+
+    entries = gpu_free_memory()
+    return entries[0][0] if entries else None
+
+
 def conda_environment() -> str | None:
     return os.environ.get("CONDA_DEFAULT_ENV") or os.environ.get("CONDA_PREFIX")
 

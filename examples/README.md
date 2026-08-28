@@ -36,6 +36,16 @@ Always inspect the mask before running:
 structbio proteinmpnn inspect-mask CONFIG.yaml
 ```
 
+## ColabFold
+
+- `colabfold/designs.yaml`: fold designed sequences without contacting the
+  public MSA server. The same run in short form:
+  `colabfold predict my_sequences my_folds --msa-mode single_sequence`.
+- `colabfold/natural_msa.yaml`: a natural sequence with a full MSA and
+  templates. This mode sends sequences to a public server.
+- `colabfold/complex.yaml`: a complex, whose chains are joined by `:` inside one
+  FASTA record.
+
 ## CryoZeta
 
 - `cryozeta/native_input.example.json`: schematic native CryoZeta target JSON.

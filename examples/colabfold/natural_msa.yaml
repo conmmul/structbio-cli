@@ -1,0 +1,26 @@
+# Fold a natural sequence with a full MSA.
+#
+# WARNING: this mode sends every input sequence to the public ColabFold
+# MMseqs2 server. Set msa.host_url to your own server, or use
+# msa.mode: single_sequence, when the sequences are unpublished.
+tool: colabfold
+
+experiment:
+  name: natural_target
+
+input:
+  sequences: /absolute/path/to/target.fasta
+
+msa:
+  mode: mmseqs2_uniref_env
+  templates: true
+
+prediction:
+  num_models: 5
+  model_type: auto
+
+output:
+  rank: plddt
+
+resources:
+  gpus: 1

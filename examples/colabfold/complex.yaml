@@ -1,0 +1,24 @@
+# Fold a complex. In the FASTA, chains of one complex are joined by ':' in a
+# single record, for example:
+#
+#   >my_complex
+#   MKTAYIAKQRQISFVKSHFSRQ:GSGSGSGSEEKLIVL
+tool: colabfold
+
+experiment:
+  name: complex_prediction
+
+input:
+  sequences: /absolute/path/to/complex.fasta
+
+msa:
+  mode: mmseqs2_uniref_env
+  pair_mode: unpaired_paired
+
+prediction:
+  # 'auto' selects a multimer model when a record has more than one chain.
+  model_type: auto
+  num_models: 5
+
+resources:
+  gpus: 1

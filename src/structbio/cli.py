@@ -24,7 +24,7 @@ from structbio.config import (
     parse_cli_overrides,
     user_config_path,
 )
-from structbio.environment import detect_gpu, detect_unwrapped_tools
+from structbio.environment import detect_gpu, detect_unwrapped_tools, select_idle_gpu
 from structbio.execution import execute_plan, plan_input_paths
 from structbio.experiment import (
     ExperimentManager,
@@ -68,17 +68,26 @@ proteinmpnn_app = typer.Typer(
     ),
     no_args_is_help=True,
 )
+colabfold_app = typer.Typer(
+    help=(
+        "ColabFold structure prediction.\n\n"
+        "  colabfold predict SEQUENCES OUTPUT"
+    ),
+    no_args_is_help=True,
+)
 cryozeta_app = typer.Typer(
     help="CryoZeta inference.\n\n  cryozeta predict TARGETS.json OUTPUT",
     no_args_is_help=True,
 )
 app.add_typer(rfdiffusion_app, name="rfdiffusion")
 app.add_typer(proteinmpnn_app, name="proteinmpnn")
+app.add_typer(colabfold_app, name="colabfold")
 app.add_typer(cryozeta_app, name="cryozeta")
 
 
 OUTPUT_HELP = "Output folder; its name is also used as the output file prefix"
-GPU_HELP = "GPU id(s) to use on this workstation, such as 0 or 0,1"
+GPU_HELP = "GPU to use: an id such as 0, several as 0,1, or 'auto' for the idlest"
+QUIET_HELP = "Do not echo the tool's output; it is still written to the log"
 SET_HELP = "Override any configuration value: dotted.key=YAML_VALUE"
 
 
@@ -176,14 +185,28 @@ def _require_installed(loaded: LoadedConfig, backend: ToolBackend) -> Any:
     return installation
 
 
-def _with_gpu(plan: CommandPlan, gpu: str | None) -> CommandPlan:
+def _resolve_gpu(gpu: str | None) -> str | None:
+    """Turn --gpu into a concrete id list, resolving 'auto' against this machine."""
+
     if not gpu:
-        return plan
+        return None
+    if gpu.strip().lower() == "auto":
+        index = select_idle_gpu()
+        if index is None:
+            _abort("--gpu auto needs nvidia-smi to see the GPUs; name an id such as --gpu 0")
+        typer.echo(f"Using GPU {index}, which has the most free memory.")
+        return str(index)
     try:
-        ids = quick.parse_gpu_ids(gpu)
+        return ",".join(str(item) for item in quick.parse_gpu_ids(gpu))
     except ValueError as exc:
         _abort(str(exc))
-    value = ",".join(str(item) for item in ids)
+    raise AssertionError("unreachable")
+
+
+def _with_gpu(plan: CommandPlan, gpu: str | None) -> CommandPlan:
+    value = _resolve_gpu(gpu)
+    if value is None:
+        return plan
     plan.steps = [
         dataclasses.replace(step, env={**step.env, "CUDA_VISIBLE_DEVICES": value})
         for step in plan.steps
@@ -212,6 +235,7 @@ def _quick_run(
     gpu: str | None,
     dry_run: bool,
     set_values: list[str],
+    quiet: bool = False,
     **arguments: Any,
 ) -> None:
     """Validate and run a positional command against a plain output folder."""
@@ -265,7 +289,7 @@ def _quick_run(
     )
     typer.echo(f"{backend.display_name}: {plan.render()}")
     typer.echo(f"Output folder: {paths.outputs}")
-    return_code = execute_plan(plan, paths)
+    return_code = execute_plan(plan, paths, stream=not quiet)
     if return_code:
         typer.echo(f"Failed with exit code {return_code}; see {paths.stderr}", err=True)
         raise typer.Exit(return_code)
@@ -279,6 +303,7 @@ def rfdiffusion_monomer(
     num: int = typer.Option(1, "-n", "--num", min=1, help="Number of designs"),
     gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
     set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
 ) -> None:
     """Design new monomer backbones from nothing but a length.
@@ -292,6 +317,7 @@ def rfdiffusion_monomer(
         output,
         gpu=gpu,
         dry_run=dry_run,
+        quiet=quiet,
         set_values=set_value,
         length=length,
         num_designs=num,
@@ -306,6 +332,7 @@ def rfdiffusion_symmetry(
     num: int = typer.Option(1, "-n", "--num", min=1, help="Number of designs"),
     gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
     set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
 ) -> None:
     """Design symmetric oligomers.
@@ -320,6 +347,7 @@ def rfdiffusion_symmetry(
         output,
         gpu=gpu,
         dry_run=dry_run,
+        quiet=quiet,
         set_values=set_value,
         symmetry=group,
         length=length,
@@ -341,6 +369,7 @@ def rfdiffusion_binder(
     num: int = typer.Option(1, "-n", "--num", min=1, help="Number of designs"),
     gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
     set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
 ) -> None:
     """Design binders against a target structure.
@@ -355,6 +384,7 @@ def rfdiffusion_binder(
         output,
         gpu=gpu,
         dry_run=dry_run,
+        quiet=quiet,
         set_values=set_value,
         target=target,
         length=length,
@@ -372,6 +402,7 @@ def rfdiffusion_partial(
     num: int = typer.Option(1, "-n", "--num", min=1, help="Number of designs"),
     gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
     set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
 ) -> None:
     """Diversify an existing structure by partial diffusion.
@@ -386,6 +417,7 @@ def rfdiffusion_partial(
         output,
         gpu=gpu,
         dry_run=dry_run,
+        quiet=quiet,
         set_values=set_value,
         pdb=pdb,
         steps=steps,
@@ -412,6 +444,7 @@ def proteinmpnn_design(
     soluble: bool = typer.Option(False, "--soluble", help="Use the soluble-protein model"),
     gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
     set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
 ) -> None:
     """Design sequences for a structure, or for every PDB in a folder.
@@ -426,6 +459,7 @@ def proteinmpnn_design(
         output,
         gpu=gpu,
         dry_run=dry_run,
+        quiet=quiet,
         set_values=set_value,
         input_path=input_path,
         num_sequences=num_sequences,
@@ -435,6 +469,56 @@ def proteinmpnn_design(
         temperature=temperature,
         seed=seed,
         soluble=soluble,
+    )
+
+
+@colabfold_app.command("predict")
+def colabfold_predict(
+    sequences: Path = typer.Argument(
+        ..., exists=True, help="FASTA file, a folder of them, or a ProteinMPNN output folder"
+    ),
+    output: Path = typer.Argument(..., help=OUTPUT_HELP),
+    num_models: int = typer.Option(
+        5, "-n", "--num-models", min=1, max=5, help="Models per sequence"
+    ),
+    msa_mode: str = typer.Option(
+        "mmseqs2_uniref_env",
+        "--msa-mode",
+        help="mmseqs2_uniref_env, mmseqs2_uniref_env_envpair, mmseqs2_uniref, or single_sequence",
+    ),
+    templates: bool = typer.Option(False, "--templates", help="Use PDB templates"),
+    relax: int = typer.Option(
+        0, "--relax", min=0, max=5, help="Amber-relax this many top-ranked models"
+    ),
+    recycle: int | None = typer.Option(None, "--recycle", min=0, help="Recycle iterations"),
+    gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
+    set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
+) -> None:
+    """Predict structures for designed or natural sequences.
+
+    Point it at a ProteinMPNN output folder and it finds the designed sequences
+    itself. By default MSAs come from the public ColabFold server, which means
+    the sequences leave this machine; --msa-mode single_sequence keeps them local.
+
+    Example: colabfold predict my_sequences my_folds -n 5 --relax 1
+    """
+
+    _quick_run(
+        "colabfold",
+        quick.colabfold_predict,
+        output,
+        gpu=gpu,
+        dry_run=dry_run,
+        quiet=quiet,
+        set_values=set_value,
+        sequences=sequences,
+        num_models=num_models,
+        msa_mode=msa_mode,
+        templates=templates,
+        relax=relax,
+        num_recycle=recycle,
     )
 
 
@@ -449,6 +533,7 @@ def cryozeta_predict(
     ),
     gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
     set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
 ) -> None:
     """Run CryoZeta inference on the targets described by its own JSON file.
@@ -462,6 +547,7 @@ def cryozeta_predict(
         output,
         gpu=None,  # CryoZeta takes GPU ids on its own command line
         dry_run=dry_run,
+        quiet=quiet,
         set_values=set_value,
         input_json=targets,
         mode=mode,
@@ -495,6 +581,7 @@ def _run_command(
     dry_run: bool,
     set_values: list[str] | None = None,
     gpu: str | None = None,
+    quiet: bool = False,
 ) -> None:
     loaded, backend, config, report = _validated(config_path, tool, set_values)
     if dry_run:
@@ -520,7 +607,7 @@ def _run_command(
         status="prepared",
     )
     typer.echo(f"Experiment: {paths.root}")
-    return_code = execute_plan(plan, paths)
+    return_code = execute_plan(plan, paths, stream=not quiet)
     if return_code:
         typer.echo(f"Execution failed with exit code {return_code}; see {paths.stderr}", err=True)
         raise typer.Exit(return_code)
@@ -617,11 +704,12 @@ def _register_yaml_commands(subapp: typer.Typer, tool: str) -> None:
         config: Path = typer.Argument(..., exists=True, dir_okay=False),
         dry_run: bool = typer.Option(False, "--dry-run", help="Validate and plan only"),
         gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
+        quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
         set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
     ) -> None:
         """Run a YAML configuration into a dated experiment folder."""
 
-        _run_command(config, tool, dry_run, set_value, gpu)
+        _run_command(config, tool, dry_run, set_value, gpu, quiet)
 
     @subapp.command("submit")
     def submit_tool(
@@ -760,6 +848,7 @@ def tools_command() -> None:
         "rfdiffusion monomer 150 my_monomers",
         "rfdiffusion binder target.pdb 100 my_binders --hotspots B30,B33",
         "proteinmpnn design 7kdp.pdb 8 my_sequences",
+        "colabfold predict my_sequences my_folds",
         "cryozeta predict targets.json my_maps",
     ):
         typer.echo(f"  {line}")
@@ -873,6 +962,7 @@ def main(
 
 _register_yaml_commands(rfdiffusion_app, "rfdiffusion")
 _register_yaml_commands(proteinmpnn_app, "proteinmpnn")
+_register_yaml_commands(colabfold_app, "colabfold")
 _register_yaml_commands(cryozeta_app, "cryozeta")
 
 

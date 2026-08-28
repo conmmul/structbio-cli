@@ -60,6 +60,11 @@ tools:
     manager: conda
     environment: proteinmpnn
 
+  # ColabFold usually installs colabfold_batch onto PATH.
+  colabfold:
+    executable: colabfold_batch
+    manager: none
+
   cryozeta:
     path: ~/software/CryoZeta
     executable: inference_demo.sh
@@ -76,8 +81,11 @@ Field meanings:
 | `manager` | `conda`, `pixi`, or `none`. |
 | `environment` | Conda/Pixi environment name used by that installation. |
 
-RFdiffusion and ProteinMPNN commands are wrapped with `conda run -n ENV` when a
-Conda manager and environment are configured. CryoZeta's verified upstream
+`path` may be omitted for a tool whose executable is already on PATH, as
+ColabFold's usually is; the executable is then looked up there.
+
+RFdiffusion, ProteinMPNN, and ColabFold commands are wrapped with
+`conda run -n ENV` when a Conda manager and environment are configured. CryoZeta's verified upstream
 script manages Pixi itself; the configured environment is passed as its
 `--env` argument.
 

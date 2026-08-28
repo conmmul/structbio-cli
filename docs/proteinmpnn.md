@@ -53,6 +53,15 @@ aborts if the generated mask does not round-trip exactly.
 
 Amino-acid omissions and per-position biases are YAML-only.
 
+Designed sequences are written to `OUTPUT/seqs/NAME.fa`, and the ColabFold
+wrapper reads that layout directly, so the next stage is simply:
+
+```bash
+colabfold predict my_sequences my_folds --msa-mode single_sequence
+```
+
+See the [ColabFold wrapper guide](colabfold.md).
+
 ## Required review sequence
 
 Always include `inspect-mask` for ProteinMPNN:

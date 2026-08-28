@@ -232,3 +232,27 @@ def cryozeta_predict(
         "gpu_ids": parse_gpu_ids(gpu_ids) if gpu_ids else [],
         "resources": _resources(),
     }
+
+
+def colabfold_predict(
+    *,
+    name: str,
+    sequences: Path,
+    num_models: int = 5,
+    msa_mode: str = "mmseqs2_uniref_env",
+    templates: bool = False,
+    relax: int = 0,
+    num_recycle: int | None = None,
+) -> dict[str, Any]:
+    fragment: dict[str, Any] = {
+        "tool": "colabfold",
+        "experiment": {"name": name},
+        "input": {"sequences": str(sequences)},
+        "msa": {"mode": msa_mode, "templates": templates},
+        "prediction": {"num_models": num_models},
+        "relax": {"num_relax": relax, "use_gpu": bool(relax)},
+        "resources": _resources(),
+    }
+    if num_recycle is not None:
+        fragment["prediction"]["num_recycle"] = num_recycle
+    return fragment

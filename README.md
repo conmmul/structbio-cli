@@ -9,6 +9,7 @@ type, a size, and an output folder, and the results appear in that folder.
 rfdiffusion monomer 150 my_monomers -n 10
 rfdiffusion binder target.pdb 100 my_binders --chain B --hotspots B30,B33
 proteinmpnn design 7kdp.pdb 8 my_sequences --designable A:697-749
+colabfold predict my_sequences my_folds --msa-mode single_sequence
 cryozeta predict targets.json my_maps --gpu 0
 ```
 
@@ -57,6 +58,9 @@ tools:
     executable: protein_mpnn_run.py
     manager: conda
     environment: mlfold
+  colabfold:
+    executable: colabfold_batch
+    manager: none
 ```
 
 `path` is the root of the upstream checkout and `executable` is relative to it.
@@ -85,15 +89,22 @@ of the files inside it, so `rfdiffusion monomer 150 my_monomers` writes
 | `rfdiffusion binder TARGET.pdb LENGTH OUTPUT` | Binders against a target chain |
 | `rfdiffusion partial INPUT.pdb STEPS OUTPUT` | Diversify an existing structure |
 | `proteinmpnn design INPUT NUM_SEQUENCES OUTPUT` | Sequences for a PDB, or a folder of PDBs |
+| `colabfold predict SEQUENCES OUTPUT` | Fold sequences, or a whole ProteinMPNN run |
 | `cryozeta predict TARGETS.json OUTPUT` | CryoZeta inference on its own target JSON |
 
 Options shared by every quick command:
 
-- `-n, --num` designs to produce (RFdiffusion).
-- `--gpu 0` or `--gpu 0,1` picks the GPU on this workstation.
+- `-n, --num` designs or models to produce.
+- `--gpu 0`, `--gpu 0,1`, or `--gpu auto` to take the card with the most free
+  memory — useful when someone else is already using the workstation.
 - `--dry-run` prints the exact upstream command and creates nothing.
+- `--quiet` stops the tool's output being echoed; it is still logged.
 - `--set dotted.key=value` reaches any option the short form does not expose,
   for example `--set diffusion.timesteps=50`.
+
+The wrapped tool's output is streamed to your terminal as it runs, so a long
+job shows its progress instead of going silent for an hour. Everything is
+written to the run's log files either way.
 
 Run `rfdiffusion --help`, or `rfdiffusion binder --help`, for the full list.
 
@@ -113,6 +124,27 @@ length that does not divide by the subunit count.
 `proteinmpnn design` lets every residue of the selected chains change unless you
 restrict it with `--designable`, and it prints the mutable and fixed residues,
 in the original PDB numbering, before it runs.
+
+`colabfold predict` warns you when a run would send sequences to the public
+MMseqs2 server, which the default MSA mode does. `--msa-mode single_sequence`
+keeps unpublished sequences on the machine.
+
+## Chaining a design run
+
+Each stage reads the previous stage's output folder, so the usual design
+workflow is three commands:
+
+```bash
+rfdiffusion monomer 150 my_backbones -n 20
+proteinmpnn design my_backbones 4 my_sequences
+colabfold predict my_sequences my_folds --msa-mode single_sequence
+```
+
+`proteinmpnn design` accepts a folder of backbones, and `colabfold predict`
+finds the designed sequences inside a ProteinMPNN output folder by itself,
+whether that run covered one structure or a whole batch.
+Compare each folded model against the backbone it came from to decide which
+designs are worth making.
 
 ## Results and provenance
 
@@ -183,6 +215,7 @@ hardcoded.
 - [Installation and environments](docs/installation.md)
 - [RFdiffusion wrapper: quick commands, modes, and YAML fields](docs/rfdiffusion.md)
 - [ProteinMPNN wrapper: mutation masks, constraints, and batching](docs/proteinmpnn.md)
+- [ColabFold wrapper: folding designs, and keeping sequences local](docs/colabfold.md)
 - [CryoZeta wrapper: native JSON and inference modes](docs/cryozeta.md)
 - [Adding a backend](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)

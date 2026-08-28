@@ -16,6 +16,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tools": {
         "rfdiffusion": {"manager": "conda", "executable": "scripts/run_inference.py"},
         "proteinmpnn": {"manager": "conda", "executable": "protein_mpnn_run.py"},
+        "colabfold": {"manager": "none", "executable": "colabfold_batch"},
         "cryozeta": {"manager": "pixi", "executable": "inference_demo.sh"},
     },
     "cluster_profiles": {},
@@ -41,6 +42,10 @@ tools:
     executable: protein_mpnn_run.py
     manager: conda
     environment: mlfold
+  # ColabFold usually installs colabfold_batch onto PATH, so no path is needed.
+  colabfold:
+    executable: colabfold_batch
+    manager: none
   cryozeta:
     path: ~/software/CryoZeta
     executable: inference_demo.sh

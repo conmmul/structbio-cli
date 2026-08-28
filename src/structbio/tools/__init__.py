@@ -6,6 +6,7 @@ from structbio.tools.base import ToolBackend
 
 
 def get_backends() -> dict[str, ToolBackend]:
+    from structbio.tools.colabfold import ColabFoldBackend
     from structbio.tools.cryozeta import CryoZetaBackend
     from structbio.tools.proteinmpnn import ProteinMPNNBackend
     from structbio.tools.rfdiffusion import RFDiffusionBackend
@@ -13,6 +14,7 @@ def get_backends() -> dict[str, ToolBackend]:
     backends: list[ToolBackend] = [
         RFDiffusionBackend(),
         ProteinMPNNBackend(),
+        ColabFoldBackend(),
         CryoZetaBackend(),
     ]
     return {backend.name: backend for backend in backends}

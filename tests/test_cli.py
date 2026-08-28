@@ -254,3 +254,51 @@ def test_setup_says_loudly_when_the_commands_are_not_on_path(
     present = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
     assert present.exit_code == 0, present.output
     assert "will NOT work yet" not in present.output
+
+
+def test_gpu_auto_picks_the_card_with_most_free_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    monkeypatch.setattr("structbio.cli.select_idle_gpu", lambda: 2)
+    result = runner.invoke(
+        app, ["rfdiffusion", "monomer", "80", "out", "--gpu", "auto", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Using GPU 2" in result.output
+    assert "CUDA_VISIBLE_DEVICES=2" in result.output
+
+
+def test_gpu_auto_without_nvidia_smi_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _workstation_config(tmp_path, monkeypatch)
+    monkeypatch.setattr("structbio.cli.select_idle_gpu", lambda: None)
+    result = runner.invoke(
+        app, ["rfdiffusion", "monomer", "80", "out", "--gpu", "auto", "--dry-run"]
+    )
+    assert result.exit_code == 2
+    assert "needs nvidia-smi" in result.output
+
+
+def test_colabfold_quick_command_folds_a_proteinmpnn_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n  colabfold:\n    executable: colabfold_batch\n    manager: none\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.chdir(tmp_path)
+    designs = tmp_path / "my_sequences" / "seqs"
+    designs.mkdir(parents=True)
+    (designs / "design.fa").write_text(">design_0\nMKTAYIAKQRQISFVKSHFSRQ\n")
+
+    result = runner.invoke(
+        app, ["colabfold", "predict", "my_sequences", "my_folds", "-n", "2", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert f"colabfold_batch {designs}" in result.output
+    assert "--num-models 2" in result.output
+    assert "leaves this machine" in result.output

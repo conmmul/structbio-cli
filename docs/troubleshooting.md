@@ -75,6 +75,21 @@ types. Repeat `--set` for multiple keys.
 If the reported mask is not what was intended, stop and edit the YAML. Do not
 invert the selection manually or renumber the raw PDB to satisfy the wrapper.
 
+## ColabFold errors
+
+- **Sequences leave the machine:** every `mmseqs2_*` MSA mode queries the public
+  ColabFold server. Use `--msa-mode single_sequence`, or set `msa.host_url` to
+  your own server, for unpublished sequences.
+- **Non-amino-acid characters:** the FASTA holds something other than a
+  sequence. Check for a stray header, a numeric column, or a pasted PDB line.
+- **Duplicate job names:** two records share a name, so their results overwrite
+  each other. Rename the records.
+- **Nothing found in a folder:** ColabFold reads `.fa`, `.fasta`, `.a3m`,
+  `.csv`, and `.tsv`. A ProteinMPNN output folder works because its sequences
+  are in `seqs/`.
+- **The first run stalls:** ColabFold is downloading AlphaFold parameters into
+  its own cache. That happens once.
+
 ## CryoZeta errors
 
 - Validate the native input JSON against the installed CryoZeta version.
@@ -84,6 +99,17 @@ invert the selection manually or renumber the raw PDB to satisfy the wrapper.
 - The standard wrapped pipeline is single-GPU; requesting extra GPUs does not
   parallelize it.
 - Large-complex mode is not currently wrapped.
+
+## Watching a run
+
+Wrapped tool output is streamed to the terminal as it arrives and written to the
+log at the same time. If a run looks silent:
+
+- pass `--dry-run` first to confirm the command is what you expect;
+- check `OUTPUT/.structbio/stdout.log` and `stderr.log`, which have everything
+  even when `--quiet` was used;
+- remember that a tool doing MSA or parameter downloads can be genuinely quiet
+  for several minutes before it prints anything.
 
 ## Output folders and experiments
 

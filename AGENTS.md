@@ -14,7 +14,9 @@ interface, results belong in the folder the researcher named, and SLURM support
 is an optional extra for shared clusters.
 
 Preserve scientific correctness over convenience. Never guess third-party CLI
-syntax: check the installed version and its official documentation. Preserve
+syntax: check the installed version and its official documentation, and record
+the verified version in the backend docstring. Warn the researcher when a
+wrapped tool sends their data off the machine. Preserve
 residue numbering and chain identifiers, avoid destructive operations, use dry
 runs wherever possible, and never weaken an overwrite guard. Add tests for every
 backend change. Maintain compatibility with existing YAML files and update the

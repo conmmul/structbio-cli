@@ -152,3 +152,80 @@ def validate_contig(contig: str) -> None:
             start, end = (int(part) for part in numeric.split("-", 1))
             if end < start:
                 raise StructureValidationError(f"Reversed contig range {token!r}")
+
+
+AMINO_ACIDS = set("ACDEFGHIKLMNPQRSTVWY")
+_EXTENDED_ALPHABET = AMINO_ACIDS | {"X", "B", "Z", "J", "U", "O"}
+
+
+@dataclass(frozen=True)
+class SequenceRecord:
+    """One FASTA record, with complex chains split on ColabFold's `:`."""
+
+    name: str
+    chains: tuple[str, ...]
+
+    @property
+    def length(self) -> int:
+        return sum(len(chain) for chain in self.chains)
+
+
+def parse_fasta(path: Path) -> tuple[SequenceRecord, ...]:
+    """Parse a FASTA file without reordering or rewriting any sequence."""
+
+    if not path.is_file():
+        raise StructureValidationError(f"Sequence file does not exist: {path}")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="strict").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise StructureValidationError(f"Cannot read sequence file {path}: {exc}") from exc
+
+    records: list[SequenceRecord] = []
+    name: str | None = None
+    parts: list[str] = []
+
+    def flush(line_number: int) -> None:
+        if name is None:
+            return
+        sequence = "".join(parts).replace(" ", "").upper()
+        if not sequence:
+            raise StructureValidationError(
+                f"Record {name!r} in {path.name} has no sequence (line {line_number})"
+            )
+        chains = tuple(sequence.split(":"))
+        if any(not chain for chain in chains):
+            raise StructureValidationError(
+                f"Record {name!r} in {path.name} has an empty chain; "
+                "':' separates the chains of a complex"
+            )
+        unknown = {character for chain in chains for character in chain} - _EXTENDED_ALPHABET
+        if unknown:
+            raise StructureValidationError(
+                f"Record {name!r} in {path.name} contains non-amino-acid characters: "
+                + "".join(sorted(unknown))
+            )
+        records.append(SequenceRecord(name=name, chains=chains))
+
+    for line_number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(">"):
+            flush(line_number)
+            name = stripped[1:].strip()
+            if not name:
+                raise StructureValidationError(
+                    f"Unnamed FASTA record at {path}:{line_number}"
+                )
+            parts = []
+            continue
+        if name is None:
+            raise StructureValidationError(
+                f"Sequence before the first '>' header at {path}:{line_number}"
+            )
+        parts.append(stripped)
+    flush(len(lines))
+
+    if not records:
+        raise StructureValidationError(f"No FASTA records found in {path}")
+    return tuple(records)

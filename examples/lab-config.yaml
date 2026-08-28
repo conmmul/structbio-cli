@@ -13,6 +13,9 @@ tools:
     manager: conda
     path: /opt/software/ProteinMPNN
     executable: protein_mpnn_run.py
+  colabfold:
+    manager: none
+    executable: colabfold_batch
   cryozeta:
     environment: default
     manager: pixi

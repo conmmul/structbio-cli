@@ -1,0 +1,25 @@
+# Fold designed sequences, keeping every sequence on this machine.
+tool: colabfold
+
+experiment:
+  name: designed_folds
+
+# A FASTA file, a folder of them, or a ProteinMPNN output folder.
+input:
+  sequences: /absolute/path/to/my_sequences
+
+msa:
+  # single_sequence never contacts the public MMseqs2 server. Designed
+  # sequences have no natural homologues, so an MSA adds little for them.
+  mode: single_sequence
+
+prediction:
+  num_models: 5
+  num_recycle: 3
+
+relax:
+  num_relax: 1
+  use_gpu: true
+
+resources:
+  gpus: 1
