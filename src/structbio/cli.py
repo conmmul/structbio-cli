@@ -13,7 +13,7 @@ from typing import Any
 import typer
 from pydantic import ValidationError
 
-from structbio import __version__, quick, wrappers
+from structbio import __version__, discovery, install, quick, wrappers
 from structbio.config import (
     USER_CONFIG_TEMPLATE,
     LoadedConfig,
@@ -829,26 +829,168 @@ def setup(
     bin_dir: Path = typer.Option(
         wrappers.DEFAULT_WRAPPER_DIR, "--bin-dir", help="Where tool commands are written"
     ),
+    update: bool = typer.Option(
+        False, "--update", help="Add newly found tools to an existing configuration"
+    ),
+    detect: bool = typer.Option(True, "--detect/--no-detect", help="Scan for installed software"),
     wrappers_only: bool = typer.Option(
         False, "--wrappers-only", help="Do not touch the configuration file"
     ),
 ) -> None:
-    """Create the workstation configuration file and the per-tool commands."""
+    """Find the installed software, write the configuration, add the tool commands."""
 
     config_path = user_config_path()
     if not wrappers_only:
-        if config_path.exists():
-            typer.echo(f"Configuration already exists: {config_path}")
-        else:
+        found: dict[str, discovery.Discovery] = {}
+        if detect:
+            typer.echo("Scanning for installed software...")
+            found = discovery.discover()
+            _report_discoveries(found)
+            typer.echo("")
+        if not config_path.exists():
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(USER_CONFIG_TEMPLATE, encoding="utf-8")
-            typer.echo(f"Wrote {config_path}")
-        typer.echo("Edit it so each path points at the software installed on this machine.\n")
+            config_path.write_text(
+                discovery.render_config(found) if detect else USER_CONFIG_TEMPLATE,
+                encoding="utf-8",
+            )
+            typer.echo(f"Wrote {config_path} with {len(found)} configured tool(s).")
+            if len(found) < len(discovery.SIGNATURES):
+                typer.echo(
+                    "Install anything missing with: structbio install TOOL --into ~/software"
+                )
+        elif update and found:
+            _update_config(config_path, found)
+        else:
+            typer.echo(f"Configuration already exists: {config_path}")
+            if found:
+                typer.echo(
+                    "Run 'structbio setup --update' to add the tools found above to it."
+                )
+        typer.echo("")
 
     for path, state in wrappers.install_wrappers(bin_dir):
         typer.echo(f"{state:<32} {path}")
     typer.echo("\nThen check the installation with: structbio doctor")
     _warn_about_path(bin_dir)
+
+
+def _report_discoveries(found: dict[str, discovery.Discovery]) -> None:
+    for signature in discovery.SIGNATURES:
+        entry = found.get(signature.tool)
+        state = "found" if entry else "not found"
+        detail = entry.describe() if entry else ""
+        typer.echo(f"  {signature.tool:<14} {state:<10} {detail}")
+
+
+def _update_config(config_path: Path, found: dict[str, discovery.Discovery]) -> None:
+    existing = config_path.read_text(encoding="utf-8")
+    try:
+        merged = discovery.merge_into_config(existing, found)
+    except ValueError as exc:
+        _abort(str(exc))
+    if merged == existing:
+        typer.echo(f"Configuration already covers everything found: {config_path}")
+        return
+    backup = config_path.with_suffix(config_path.suffix + ".bak")
+    backup.write_text(existing, encoding="utf-8")
+    config_path.write_text(merged, encoding="utf-8")
+    typer.echo(f"Updated {config_path} (previous version saved as {backup.name}).")
+
+
+@app.command("detect")
+def detect_command() -> None:
+    """Look for wrapped software installed on this machine, changing nothing."""
+
+    found = discovery.discover()
+    typer.echo(f"{'Tool':<14} {'Status':<10} Where")
+    _report_discoveries(found)
+    typer.echo("")
+    for name, value in discovery.environment_summary().items():
+        typer.echo(f"{name:<14} {value or 'not found'}")
+    missing = [s.tool for s in discovery.SIGNATURES if s.tool not in found]
+    if missing:
+        typer.echo(
+            "\nNot found: "
+            + ", ".join(missing)
+            + "\nInstall one with: structbio install TOOL --into ~/software"
+        )
+    elif found:
+        typer.echo("\nRecord these in the configuration with: structbio setup --update")
+
+
+@app.command("install")
+def install_command(
+    tool: str = typer.Argument(..., help="rfdiffusion, proteinmpnn, colabfold, or cryozeta"),
+    into: Path = typer.Option(
+        Path("~/software"), "--into", help="Directory to clone the project into"
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask before cloning"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the plan and clone nothing"),
+    configure: bool = typer.Option(
+        True, "--configure/--no-configure", help="Record the path in the configuration"
+    ),
+) -> None:
+    """Clone a wrapped project, then print its own remaining setup steps.
+
+    structbio does not create environments or download model weights: those
+    differ per machine, change with each release, and in CryoZeta's case carry
+    a licence only you can accept.
+    """
+
+    try:
+        recipe = install.recipe_for(tool)
+    except ValueError as exc:
+        _abort(str(exc))
+    target = recipe.target(into)
+
+    typer.echo(f"{recipe.display_name}")
+    typer.echo(f"{'  repository':<16} {recipe.repository}")
+    typer.echo(f"{'  clone into':<16} {target}")
+    typer.echo(f"{'  licence':<16} {recipe.licence}")
+    typer.echo(f"{'  weights':<16} {recipe.weights}")
+    typer.echo(f"{'  verified':<16} upstream README read on {recipe.verified_on}")
+
+    if dry_run:
+        typer.echo("\nDry run: nothing was cloned.")
+        _show_remaining_steps(recipe, target)
+        return
+    if target.exists():
+        _abort(f"{target} already exists; remove it, or point --into somewhere else")
+    if not yes and not typer.confirm(f"\nClone {recipe.repository} into {target}?"):
+        typer.echo("Nothing was cloned.")
+        raise typer.Exit(1)
+
+    try:
+        install.clone(recipe, into)
+    except (FileExistsError, RuntimeError) as exc:
+        _abort(str(exc))
+    typer.echo(f"\nCloned into {target}")
+
+    if configure:
+        found = {
+            name: entry
+            for name, entry in discovery.discover(roots=(str(into.expanduser()),)).items()
+            if name == recipe.tool
+        }
+        config_path = user_config_path()
+        if not found:
+            typer.echo("The checkout is not usable yet, so nothing was configured.")
+        elif config_path.exists():
+            _update_config(config_path, found)
+        else:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(discovery.render_config(found), encoding="utf-8")
+            typer.echo(f"Wrote {config_path}")
+    _show_remaining_steps(recipe, target)
+
+
+def _show_remaining_steps(recipe: install.InstallRecipe, target: Path) -> None:
+    typer.echo(f"\nRemaining steps, from the {recipe.display_name} README:\n")
+    for step in recipe.rendered_steps(target):
+        typer.echo(f"  {step}")
+    for note in recipe.notes:
+        typer.echo(f"\n{note.format(directory=target)}")
+    typer.echo("\nThen: structbio setup --update && structbio doctor")
 
 
 def _warn_about_path(bin_dir: Path) -> None:

@@ -9,6 +9,12 @@
 - `bin/`: generated shell wrappers, one per backend; keep them in step with
   `structbio.wrappers.render_wrapper`.
 
+A new backend needs an entry in `discovery.SIGNATURES` and `install.RECIPES`;
+both are covered by tests that compare them against the backend registry.
+Install recipes are quoted from the upstream README and carry the date it was
+read. Never make structbio create environments, download weights, or accept a
+licence on the researcher's behalf.
+
 This is workstation software first. Short positional commands are the primary
 interface, results belong in the folder the researcher named, and SLURM support
 is an optional extra for shared clusters.

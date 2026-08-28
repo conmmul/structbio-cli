@@ -7,7 +7,13 @@ exactly what would be executed.
 
 ### NOT CONFIGURED
 
-Add the tool path, executable, manager, and environment to the user
+Try `structbio detect` first: if the tool is installed somewhere it looks,
+`structbio setup --update` will record it for you. If detection misses it,
+the tool is either outside the searched directories, or its directory does not
+contain the entry-point script that identifies it — a `RFdiffusion` folder
+without `scripts/run_inference.py` is deliberately ignored.
+
+Otherwise add the tool path, executable, manager, and environment to the user
 configuration; `structbio config` prints which file is in use, and
 `structbio setup` creates it from a template. Confirm that `path/executable`
 names the actual installed script, not an example command from another checkout
@@ -26,6 +32,12 @@ pixi --version
 
 Only run commands that apply to the configured manager. A tool that lives on a
 shared filesystem is only usable from a machine that mounts it.
+
+### structbio install stopped after cloning
+
+That is what it does. Environment creation and weight downloads are left to the
+upstream project's own instructions, which the command prints. Run those, then
+`structbio setup --update` and `structbio doctor`.
 
 ## Configuration errors
 

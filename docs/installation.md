@@ -43,8 +43,33 @@ structbio install-wrappers --bin-dir /usr/local/structbio/bin
 
 ## 2. Configure installed scientific tools
 
-`structbio setup` creates `~/.config/structbio/config.yaml` from a template.
-Edit it so every path points at software already installed on this machine:
+`structbio setup` scans for software you already have and writes
+`~/.config/structbio/config.yaml` from what it finds. It looks, in this order:
+
+1. **PATH**, for tools installed as a command, such as `colabfold_batch`.
+2. **Conda and pixi environments**, from `conda env list`, both for executables
+   inside them and for environment names a tool conventionally uses (`SE3nv`
+   for RFdiffusion, `mlfold` for ProteinMPNN). An environment name is only
+   taken when it belongs to that tool: borrowing another tool's environment
+   would put a wrong `conda run -n` in front of every command.
+3. **The usual software directories** — `~/software`, `~/apps`, `~/src`,
+   `~/opt`, `~/tools`, your home directory, `/opt`, and `/usr/local` — two
+   levels deep, looking for a directory named after the tool that actually
+   contains its entry-point script. A directory named `RFdiffusion` with no
+   `scripts/run_inference.py` in it is ignored rather than configured wrongly.
+
+Related commands:
+
+```bash
+structbio detect          # run the scan, change nothing
+structbio setup --update  # add newly found tools to an existing config
+structbio setup --no-detect  # write the plain template instead
+```
+
+`--update` keeps a `.bak` copy of the previous file and never changes an entry
+you wrote yourself; it only adds tools that are missing.
+
+The result looks like this, and you can edit it freely:
 
 ```yaml
 tools:
@@ -123,5 +148,39 @@ For each wrapped tool, verify that:
 `doctor` does not treat missing optional tools as fatal, and it reports SLURM
 only as an optional extra: nothing in a workstation run needs it.
 
-Do not install RFdiffusion, ProteinMPNN, or CryoZeta merely by installing this
-package. Follow each upstream project's instructions and license terms.
+## 5. Installing the tools themselves
+
+```bash
+structbio install rfdiffusion --into ~/software
+structbio install proteinmpnn --into ~/software
+structbio install colabfold   --into ~/software
+structbio install cryozeta    --into ~/software
+```
+
+Each of these clones the project, records the path in your configuration, and
+prints that project's own remaining steps, read from its README on the date the
+command shows. `--dry-run` prints the whole plan, including the licence, and
+clones nothing.
+
+`structbio` clones and stops. It does not create conda or pixi environments and
+does not download model weights, because:
+
+- the right PyTorch or CUDA build depends on the machine, and upstream projects
+  point at pytorch.org rather than pinning one;
+- those steps change with each release, and a copy of them here would rot
+  silently while looking authoritative;
+- weights carry their own terms. CryoZeta's are free for academic and
+  non-commercial research use only, and accepting that is yours to do, not a
+  wrapper's.
+
+What each project still needs after the clone:
+
+| Tool | Remaining work | Weights |
+| --- | --- | --- |
+| RFdiffusion | `conda env create -f env/SE3nv.yml`, install SE3Transformer, `pip install -e .` | 7 checkpoints from files.ipd.uw.edu |
+| ProteinMPNN | A conda environment with PyTorch | Already in the repository |
+| ColabFold | `pixi install && pixi run setup` in the localcolabfold checkout | AlphaFold parameters fetched on first run |
+| CryoZeta | `pixi run setup` | From Hugging Face, non-commercial licence |
+
+Afterwards, `structbio setup --update` records anything new and
+`structbio doctor` confirms it is reachable.

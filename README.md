@@ -29,8 +29,24 @@ python -m pip install -e .
 structbio setup
 ```
 
-`structbio setup` writes `~/.config/structbio/config.yaml` and installs one
-short shell command per tool into `~/.local/bin`. Those commands are tiny
+`structbio setup` scans the machine for software you already have, writes
+`~/.config/structbio/config.yaml` with the paths it found, and installs one
+short shell command per tool into `~/.local/bin`:
+
+```text
+Scanning for installed software...
+  rfdiffusion    found      ~/software/RFdiffusion (environment: SE3nv)
+  proteinmpnn    found      ~/software/ProteinMPNN (environment: mlfold)
+  colabfold      found      /opt/localcolabfold/.pixi/envs/default/bin/colabfold_batch
+  cryozeta       not found
+Wrote ~/.config/structbio/config.yaml with 3 configured tool(s).
+```
+
+It looks on PATH, through your conda and pixi environments, and in the usual
+software directories. `structbio detect` runs the same scan without writing
+anything, and `structbio setup --update` adds newly found tools to a
+configuration you already have, keeping a `.bak` copy and never changing an
+entry you wrote yourself. Those commands are tiny
 wrappers: `rfdiffusion ...` is exactly `structbio rfdiffusion ...`. The same
 wrappers are checked into [`bin/`](bin) if you would rather copy them into a
 shared directory yourself.
@@ -64,7 +80,22 @@ tools:
 ```
 
 `path` is the root of the upstream checkout and `executable` is relative to it.
-`structbio` never installs the scientific software or its model weights.
+
+### Installing a tool you do not have
+
+```bash
+structbio install rfdiffusion --into ~/software
+```
+
+This clones the project, records its path in your configuration, and then
+prints that project's own remaining setup steps — creating the conda
+environment and downloading the model weights — for you to run.
+
+`structbio` deliberately stops before those steps. They differ per machine,
+change with each upstream release, and in CryoZeta's case the weights are
+licensed for academic and non-commercial use only, which is not a decision a
+wrapper should make for you. `--dry-run` shows the whole plan, including the
+licence, without cloning anything.
 
 Then confirm what the workstation can reach:
 
@@ -206,6 +237,8 @@ folder you name, and `structbio status` lists those runs.
 | `structbio TOOL command CONFIG.yaml` | no | no |
 | `structbio proteinmpnn inspect-mask CONFIG.yaml` | no | no |
 | `structbio status [FOLDER \| EXPERIMENT_ID]` | no | no |
+| `structbio detect` | no | no |
+| `structbio install TOOL` | clones a project | no |
 | `structbio setup` / `doctor` / `tools` / `config` | configuration only | no |
 
 ## Configuration precedence

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from structbio import __version__
@@ -302,3 +303,101 @@ def test_colabfold_quick_command_folds_a_proteinmpnn_folder(
     assert f"colabfold_batch {designs}" in result.output
     assert "--num-models 2" in result.output
     assert "leaves this machine" in result.output
+
+
+def _fake_install(root: Path) -> Path:
+    (root / "ProteinMPNN").mkdir(parents=True)
+    (root / "ProteinMPNN" / "protein_mpnn_run.py").touch()
+    return root
+
+
+def test_setup_writes_a_configuration_from_what_it_finds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from structbio import discovery
+
+    software = _fake_install(tmp_path / "software")
+    monkeypatch.setattr(discovery, "conda_environments", dict)
+    scan = discovery.discover  # capture before patching, or the lambda calls itself
+    monkeypatch.setattr(discovery, "discover", lambda **_: scan(roots=(str(software),)))
+    config_path = tmp_path / "config" / "structbio.yaml"
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(config_path))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+
+    result = runner.invoke(app, ["setup", "--bin-dir", str(tmp_path / "bin")])
+    assert result.exit_code == 0, result.output
+    assert "proteinmpnn    found" in result.output
+    assert "rfdiffusion    not found" in result.output
+
+    written = yaml.safe_load(config_path.read_text())
+    assert written["tools"]["proteinmpnn"]["path"] == str(software / "ProteinMPNN")
+    assert "rfdiffusion" not in written["tools"]
+
+
+def test_setup_update_merges_and_keeps_a_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from structbio import discovery
+
+    software = _fake_install(tmp_path / "software")
+    monkeypatch.setattr(discovery, "conda_environments", dict)
+    scan = discovery.discover  # capture before patching, or the lambda calls itself
+    monkeypatch.setattr(discovery, "discover", lambda **_: scan(roots=(str(software),)))
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("tools:\n  rfdiffusion:\n    path: /my/RFdiffusion\n")
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(config_path))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+
+    unchanged = runner.invoke(app, ["setup", "--bin-dir", str(tmp_path / "bin")])
+    assert "already exists" in unchanged.output
+    assert config_path.read_text().startswith("tools:")
+
+    updated = runner.invoke(app, ["setup", "--update", "--bin-dir", str(tmp_path / "bin")])
+    assert updated.exit_code == 0, updated.output
+    merged = yaml.safe_load(config_path.read_text())
+    assert merged["tools"]["rfdiffusion"]["path"] == "/my/RFdiffusion"
+    assert merged["tools"]["proteinmpnn"]["path"] == str(software / "ProteinMPNN")
+    assert (tmp_path / "config.yaml.bak").read_text().startswith("tools:")
+
+
+def test_detect_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(config_path))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.setattr("structbio.cli.discovery.discover", lambda **_: {})
+    result = runner.invoke(app, ["detect"])
+    assert result.exit_code == 0, result.output
+    assert "Not found: rfdiffusion" in result.output
+    assert not config_path.exists()
+
+
+def test_install_dry_run_clones_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(tmp_path / "config.yaml"))
+    result = runner.invoke(
+        app, ["install", "cryozeta", "--into", str(tmp_path / "software"), "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "non-commercial" in result.output
+    assert "pixi run setup" in result.output
+    assert "Dry run: nothing was cloned" in result.output
+    assert not (tmp_path / "software").exists()
+
+
+def test_install_refuses_an_existing_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(tmp_path / "config.yaml"))
+    (tmp_path / "software" / "CryoZeta").mkdir(parents=True)
+    result = runner.invoke(
+        app,
+        ["install", "cryozeta", "--into", str(tmp_path / "software"), "--yes"],
+    )
+    assert result.exit_code == 2
+    assert "already exists" in result.output
+
+
+def test_install_rejects_an_unknown_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(tmp_path / "config.yaml"))
+    result = runner.invoke(app, ["install", "alphafold", "--dry-run"])
+    assert result.exit_code == 2
+    assert "known tools" in result.output
