@@ -252,6 +252,9 @@ hardcoded.
 
 ## More help
 
+- [**PROTOCOL.md**](PROTOCOL.md) — a step-by-step guide that assumes no
+  command-line experience. Start here if the terminal is new to you, and give
+  this to new lab members.
 - [Copyable wrapper configuration catalog](examples/README.md)
 - [Installation and environments](docs/installation.md)
 - [RFdiffusion wrapper: quick commands, modes, and YAML fields](docs/rfdiffusion.md)
@@ -261,3 +264,4 @@ hardcoded.
 - [Adding a backend](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Optional: shared clusters and SLURM](docs/cluster.md)
+- [Verification checklist before rolling this out](docs/verification.md)

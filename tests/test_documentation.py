@@ -10,10 +10,15 @@ from structbio.tools import get_backend
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _markdown_files() -> list[Path]:
+    files = sorted(REPOSITORY_ROOT.glob("*.md"))
+    files.extend(sorted((REPOSITORY_ROOT / "docs").glob("*.md")))
+    files.extend(sorted((REPOSITORY_ROOT / "examples").glob("*.md")))
+    return files
+
+
 def test_local_markdown_links_resolve() -> None:
-    markdown_files = [REPOSITORY_ROOT / "README.md"]
-    markdown_files.extend((REPOSITORY_ROOT / "docs").glob("*.md"))
-    markdown_files.extend((REPOSITORY_ROOT / "examples").glob("*.md"))
+    markdown_files = _markdown_files()
     pattern = re.compile(r"\[[^]]+\]\(([^)]+)\)")
     missing: list[str] = []
     for markdown_file in markdown_files:
@@ -42,8 +47,7 @@ def test_example_configuration_files_are_parseable() -> None:
 
 
 def test_documented_yaml_blocks_are_parseable() -> None:
-    markdown_files = [REPOSITORY_ROOT / "README.md"]
-    markdown_files.extend((REPOSITORY_ROOT / "docs").glob("*.md"))
+    markdown_files = _markdown_files()
     pattern = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
     for markdown_file in markdown_files:
         for index, block in enumerate(

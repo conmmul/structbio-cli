@@ -6,6 +6,8 @@
 - `tests/`: GPU-free unit and CLI tests with small PDB fixtures.
 - `examples/`: researcher-facing YAML examples.
 - `docs/`: architecture and tool-specific behavior.
+- `PROTOCOL.md`: the beginner-facing guide; keep every command in it real, and
+  check it still matches when an interface changes.
 - `bin/`: generated shell wrappers, one per backend; keep them in step with
   `structbio.wrappers.render_wrapper`.
 
