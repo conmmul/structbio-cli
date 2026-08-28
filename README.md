@@ -1,9 +1,7 @@
 # structbio
 
-`structbio` gives a structural-biology lab one safe, reproducible command-line
-interface for installed scientific software. It does not replace RFdiffusion,
-ProteinMPNN, or CryoZeta; it validates inputs, constructs their real commands,
-records every run, and optionally generates SLURM scripts.
+`structbio` is a  command-line
+interface for installed scientific software. This is specifically for software not currently adopted by SBGrid-cli. Many people in my lab don't run these on workstations locally, but it is a better option than using the thin colabs that are sometimes included. Hopefully this is an easier way to run these programs with more control. Will keep updating softwares.
 
 ## Install
 
@@ -16,8 +14,7 @@ python -m pip install -e .
 structbio doctor
 ```
 
-Create `~/.config/structbio/config.yaml` (or ask the lab manager for the
-lab-wide file):
+Create `~/.config/structbio/config.yaml`:
 
 ```yaml
 tools:
