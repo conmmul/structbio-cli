@@ -48,9 +48,15 @@ structbio proteinmpnn inspect-mask CONFIG.yaml
 
 ## CryoZeta
 
-- `cryozeta/native_input.example.json`: schematic native CryoZeta target JSON.
+- `cryozeta/map_and_sequences.yaml`: a map plus a FASTA, with the native target
+  JSON generated for you. The same run in short form:
+  `cryozeta predict map.map.gz chains.fasta my_model --resolution 2.99 --contour 0.3`.
+- `cryozeta/large_complex.yaml`: the large-complex pipeline, for complexes above
+  roughly 2800 residues.
+- `cryozeta/native_input.example.json`: schematic native CryoZeta target JSON,
+  for ligands, ions, modifications, or several targets at once.
 - `cryozeta/dataset.yaml`: wrapper YAML pointing at a native JSON file. The same
-  run in short form: `cryozeta predict targets.json my_maps`.
+  run in short form: `cryozeta predict-json targets.json my_models`.
 
 The JSON schema is owned by CryoZeta. Compare the template with the installed
 CryoZeta version before use.

@@ -1,0 +1,21 @@
+# A complex above roughly 2800 residues, which the CryoZeta README directs to
+# large_inference_demo.sh rather than the standard pipeline.
+#
+# The large pipeline takes --registration rather than --mode, and
+# --detection-checkpoint rather than --interp-checkpoint.
+tool: cryozeta
+
+experiment:
+  name: my_large_complex
+
+input:
+  map: /absolute/path/to/large_map.map.gz
+  sequences: /absolute/path/to/chains.fasta
+  resolution: 3.4
+  contour_level: 0.05
+
+large: true
+registration: auto
+
+resources:
+  gpus: 1

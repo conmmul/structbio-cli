@@ -73,3 +73,51 @@ def test_malformed_fasta_is_rejected(tmp_path: Path, text: str, message: str) ->
     path.write_text(text)
     with pytest.raises(StructureValidationError, match=message):
         parse_fasta(path)
+
+
+def test_map_header_is_read_with_either_byte_order(tmp_path: Path) -> None:
+    import struct
+
+    from structbio.validation import parse_map_header
+
+    for order, stamp in (("<", b"\x44\x44"), (">", b"\x11\x11")):
+        header = bytearray(1024)
+        header[0:16] = struct.pack(f"{order}4i", 90, 100, 110, 2)
+        header[208:212] = b"MAP "
+        header[212:214] = stamp
+        path = tmp_path / f"map_{order == '<'}.map"
+        path.write_bytes(bytes(header))
+        parsed = parse_map_header(path)
+        assert (parsed.columns, parsed.rows, parsed.sections) == (90, 100, 110)
+        assert parsed.voxels == 90 * 100 * 110
+
+
+def test_map_header_rejects_impossible_grids(tmp_path: Path) -> None:
+    import struct
+
+    from structbio.validation import parse_map_header
+
+    header = bytearray(1024)
+    header[0:16] = struct.pack("<4i", 0, 100, 110, 2)
+    header[208:212] = b"MAP "
+    header[212:214] = b"\x44\x44"
+    path = tmp_path / "bad.map"
+    path.write_bytes(bytes(header))
+    with pytest.raises(StructureValidationError, match="impossible grid"):
+        parse_map_header(path)
+
+
+@pytest.mark.parametrize(
+    ("sequence", "expected"),
+    [
+        ("MKTAYIAKQ", "protein"),
+        ("ACGUACGU", "rna"),
+        ("ACGTACGT", "ambiguous"),
+        ("ACGACG", "ambiguous"),
+        ("", "ambiguous"),
+    ],
+)
+def test_sequence_classification_refuses_to_guess(sequence: str, expected: str) -> None:
+    from structbio.validation import classify_sequence
+
+    assert classify_sequence(sequence) == expected

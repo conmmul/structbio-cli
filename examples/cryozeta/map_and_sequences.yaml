@@ -1,0 +1,25 @@
+# Model a structure into a cryo-EM map, letting structbio write CryoZeta's
+# native target JSON from the map and a FASTA of the chains.
+#
+# The same run in short form:
+#   cryozeta predict emd_44046.map.gz chains.fasta my_model \
+#     --resolution 2.99 --contour 0.3 --dna chain_C
+tool: cryozeta
+
+experiment:
+  name: my_target
+
+input:
+  map: /absolute/path/to/emd_44046.map.gz
+  sequences: /absolute/path/to/chains.fasta
+  resolution: 2.99
+  contour_level: 0.3
+  # Only needed for sequences written with A, C, G and T alone, which could be
+  # either a short peptide or a nucleic acid.
+  chains:
+    dna: [chain_C]
+
+mode: combined
+
+resources:
+  gpus: 1

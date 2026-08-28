@@ -92,13 +92,21 @@ invert the selection manually or renumber the raw PDB to satisfy the wrapper.
 
 ## CryoZeta errors
 
-- Validate the native input JSON against the installed CryoZeta version.
+- **Not an MRC/CCP4 density map:** the file has no `MAP ` stamp at byte 208.
+  Check for a truncated download, or a `.pdb` or `.mrcs` given by mistake.
+- **Cannot tell whether a chain is protein, DNA, or RNA:** the sequence uses
+  only A, C, G and T, which are valid in both. Say which with `--dna`, `--rna`,
+  or `--protein`, or with `input.chains` in YAML.
+- **A complex above ~2800 residues:** add `--large` to use
+  `large_inference_demo.sh`. Its options differ: `--registration` instead of
+  `--mode`, and `--detection-checkpoint` instead of `--interp-checkpoint`.
+- **Ligands, ions, modifications, or several targets:** the short command cannot
+  express them. Write CryoZeta's own JSON and use `cryozeta predict-json`.
 - Prefer absolute map and MSA paths so they do not depend on the current
   directory.
 - Confirm Pixi assets, checkpoints, CUDA toolchain, and compiler cache locations.
 - The standard wrapped pipeline is single-GPU; requesting extra GPUs does not
   parallelize it.
-- Large-complex mode is not currently wrapped.
 
 ## Watching a run
 

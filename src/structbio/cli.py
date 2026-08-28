@@ -76,7 +76,11 @@ colabfold_app = typer.Typer(
     no_args_is_help=True,
 )
 cryozeta_app = typer.Typer(
-    help="CryoZeta inference.\n\n  cryozeta predict TARGETS.json OUTPUT",
+    help=(
+        "CryoZeta cryo-EM structure modelling.\n\n"
+        "  cryozeta predict MAP.mrc CHAINS.fasta OUTPUT --resolution R --contour C\n"
+        "  cryozeta predict-json TARGETS.json OUTPUT"
+    ),
     no_args_is_help=True,
 )
 app.add_typer(rfdiffusion_app, name="rfdiffusion")
@@ -201,6 +205,12 @@ def _resolve_gpu(gpu: str | None) -> str | None:
     except ValueError as exc:
         _abort(str(exc))
     raise AssertionError("unreachable")
+
+
+def _cryozeta_gpu(gpu: str | None) -> str | None:
+    """CryoZeta takes GPU ids on its own command line rather than through the environment."""
+
+    return _resolve_gpu(gpu)
 
 
 def _with_gpu(plan: CommandPlan, gpu: str | None) -> CommandPlan:
@@ -524,21 +534,53 @@ def colabfold_predict(
 
 @cryozeta_app.command("predict")
 def cryozeta_predict(
-    targets: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, help="Native CryoZeta target JSON"
+    density_map: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, help="Cryo-EM density map (.map, .mrc, .map.gz)"
+    ),
+    sequences: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, help="FASTA of every chain in the complex"
     ),
     output: Path = typer.Argument(..., help=OUTPUT_HELP),
+    resolution: float = typer.Option(
+        ..., "--resolution", min=0.1, max=30.0, help="Map resolution in angstroms"
+    ),
+    contour: float = typer.Option(
+        ..., "--contour", help="Recommended contour level for the map"
+    ),
     mode: str = typer.Option(
         "combined", "--mode", help="combined, cryozeta, or cryozeta-interpolate"
+    ),
+    large: bool = typer.Option(
+        False, "--large", help="Use the large-complex pipeline (above ~2800 residues)"
+    ),
+    registration: str = typer.Option(
+        "auto", "--registration", help="Large-complex registration: auto, teaser, svd, vesper"
+    ),
+    dna: str | None = typer.Option(None, "--dna", help="FASTA record names that are DNA"),
+    rna: str | None = typer.Option(None, "--rna", help="FASTA record names that are RNA"),
+    protein: str | None = typer.Option(
+        None, "--protein", help="FASTA record names that are protein, when ambiguous"
+    ),
+    msa_dir: Path | None = typer.Option(
+        None, "--msa-dir", help="Directory of precomputed .a3m files"
+    ),
+    pairing_db: str | None = typer.Option(
+        None, "--pairing-db", help="MSA pairing database, such as uniref100"
     ),
     gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
     quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
     set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
 ) -> None:
-    """Run CryoZeta inference on the targets described by its own JSON file.
+    """Model a structure into a cryo-EM map from the map and its sequences.
 
-    Example: cryozeta predict targets.json my_maps --gpu 0
+    The native CryoZeta target JSON is written for you into
+    OUTPUT/.structbio/inputs/targets.json. Identical sequences are counted as
+    copies of one chain. Ligands, ions, and modifications need a hand-written
+    JSON and `cryozeta predict-json`.
+
+    Example: cryozeta predict emd_44046.map.gz chains.fasta my_model
+             --resolution 2.99 --contour 0.3
     """
 
     _quick_run(
@@ -549,9 +591,63 @@ def cryozeta_predict(
         dry_run=dry_run,
         quiet=quiet,
         set_values=set_value,
+        density_map=density_map,
+        sequences=sequences,
+        resolution=resolution,
+        contour=contour,
+        mode=mode,
+        large=large,
+        registration=registration,
+        dna=dna,
+        rna=rna,
+        protein=protein,
+        msa_dir=msa_dir,
+        pairing_db=pairing_db,
+        gpu_ids=_cryozeta_gpu(gpu),
+    )
+
+
+@cryozeta_app.command("predict-json")
+def cryozeta_predict_json(
+    targets: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, help="Native CryoZeta target JSON"
+    ),
+    output: Path = typer.Argument(..., help=OUTPUT_HELP),
+    mode: str = typer.Option(
+        "combined", "--mode", help="combined, cryozeta, or cryozeta-interpolate"
+    ),
+    large: bool = typer.Option(
+        False, "--large", help="Use the large-complex pipeline (above ~2800 residues)"
+    ),
+    registration: str = typer.Option(
+        "auto", "--registration", help="Large-complex registration: auto, teaser, svd, vesper"
+    ),
+    gpu: str | None = typer.Option(None, "--gpu", help=GPU_HELP),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the command only"),
+    quiet: bool = typer.Option(False, "--quiet", help=QUIET_HELP),
+    set_value: list[str] = typer.Option([], "--set", help=SET_HELP),
+) -> None:
+    """Run a CryoZeta target list you wrote yourself.
+
+    Use this for anything the short form cannot describe: several targets in one
+    run, ligands and ions, chain modifications, or glycans.
+
+    Example: cryozeta predict-json targets.json my_models --gpu 0
+    """
+
+    _quick_run(
+        "cryozeta",
+        quick.cryozeta_predict_json,
+        output,
+        gpu=None,
+        dry_run=dry_run,
+        quiet=quiet,
+        set_values=set_value,
         input_json=targets,
         mode=mode,
-        gpu_ids=gpu,
+        large=large,
+        registration=registration,
+        gpu_ids=_cryozeta_gpu(gpu),
     )
 
 
@@ -849,7 +945,7 @@ def tools_command() -> None:
         "rfdiffusion binder target.pdb 100 my_binders --hotspots B30,B33",
         "proteinmpnn design 7kdp.pdb 8 my_sequences",
         "colabfold predict my_sequences my_folds",
-        "cryozeta predict targets.json my_maps",
+        "cryozeta predict map.mrc chains.fasta my_model --resolution 3.0 --contour 0.3",
     ):
         typer.echo(f"  {line}")
 

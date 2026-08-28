@@ -229,3 +229,98 @@ def parse_fasta(path: Path) -> tuple[SequenceRecord, ...]:
     if not records:
         raise StructureValidationError(f"No FASTA records found in {path}")
     return tuple(records)
+
+
+_MAP_MAGIC_OFFSET = 208
+_LITTLE_ENDIAN_STAMP = b"\x44\x44"
+_BIG_ENDIAN_STAMP = b"\x11\x11"
+
+
+@dataclass(frozen=True)
+class MapHeader:
+    """The parts of an MRC/CCP4 header worth checking before a long run."""
+
+    path: Path
+    columns: int
+    rows: int
+    sections: int
+    mode: int
+    compressed: bool
+
+    @property
+    def voxels(self) -> int:
+        return self.columns * self.rows * self.sections
+
+    def describe(self) -> str:
+        grid = f"{self.columns} x {self.rows} x {self.sections}"
+        return f"{grid} voxels" + (", gzip compressed" if self.compressed else "")
+
+
+def parse_map_header(path: Path) -> MapHeader:
+    """Read an MRC/CCP4 density map header, transparently handling gzip."""
+
+    if not path.is_file():
+        raise StructureValidationError(f"Density map does not exist: {path}")
+    compressed = path.suffix.lower() == ".gz"
+    try:
+        if compressed:
+            import gzip
+
+            with gzip.open(path, "rb") as handle:
+                header = handle.read(1024)
+        else:
+            with path.open("rb") as handle:
+                header = handle.read(1024)
+    except (OSError, EOFError) as exc:
+        raise StructureValidationError(f"Cannot read density map {path}: {exc}") from exc
+
+    if len(header) < 1024:
+        raise StructureValidationError(
+            f"Density map {path.name} is truncated: its header is only {len(header)} bytes"
+        )
+    if header[_MAP_MAGIC_OFFSET : _MAP_MAGIC_OFFSET + 4] != b"MAP ":
+        raise StructureValidationError(
+            f"{path.name} is not an MRC/CCP4 density map: the 'MAP ' stamp is missing. "
+            "CryoZeta reads .map, .mrc, and .map.gz files"
+        )
+    stamp = header[212:214]
+    order = ">" if stamp == _BIG_ENDIAN_STAMP else "<"
+    if stamp not in (_LITTLE_ENDIAN_STAMP, _BIG_ENDIAN_STAMP):
+        order = "<"
+    import struct
+
+    columns, rows, sections, mode = struct.unpack(f"{order}4i", header[0:16])
+    if min(columns, rows, sections) <= 0:
+        raise StructureValidationError(
+            f"Density map {path.name} reports an impossible grid: "
+            f"{columns} x {rows} x {sections}"
+        )
+    return MapHeader(
+        path=path,
+        columns=columns,
+        rows=rows,
+        sections=sections,
+        mode=mode,
+        compressed=compressed,
+    )
+
+
+_NUCLEIC_ONLY = set("ACGTU")
+
+
+def classify_sequence(sequence: str) -> str:
+    """Return 'protein', 'dna', 'rna', or 'ambiguous' for a one-letter sequence.
+
+    A, C, G and T are all valid amino acids as well as nucleotides, so a
+    sequence written only from those letters cannot be classified safely and the
+    caller has to be told to say which it is.
+    """
+
+    letters = set(sequence.upper())
+    if not letters:
+        return "ambiguous"
+    if not letters <= _NUCLEIC_ONLY:
+        return "protein"
+    if "U" in letters and "T" not in letters:
+        return "rna"
+    return "ambiguous"

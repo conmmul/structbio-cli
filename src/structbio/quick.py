@@ -221,17 +221,84 @@ def proteinmpnn_design(
     }
 
 
-def cryozeta_predict(
-    *, name: str, input_json: Path, mode: str, gpu_ids: str | None = None
+def _cryozeta_common(
+    *, name: str, mode: str, large: bool, registration: str, gpu_ids: str | None
 ) -> dict[str, Any]:
-    return {
+    fragment: dict[str, Any] = {
         "tool": "cryozeta",
         "experiment": {"name": name},
-        "input": {"json": str(input_json)},
         "mode": mode,
+        "large": large,
         "gpu_ids": parse_gpu_ids(gpu_ids) if gpu_ids else [],
         "resources": _resources(),
     }
+    if large:
+        fragment["registration"] = registration
+    return fragment
+
+
+def cryozeta_predict(
+    *,
+    name: str,
+    density_map: Path,
+    sequences: Path,
+    resolution: float,
+    contour: float,
+    mode: str = "combined",
+    large: bool = False,
+    registration: str = "auto",
+    dna: str | None = None,
+    rna: str | None = None,
+    protein: str | None = None,
+    msa_dir: Path | None = None,
+    pairing_db: str | None = None,
+    gpu_ids: str | None = None,
+) -> dict[str, Any]:
+    """Describe a CryoZeta target from a map and a FASTA of its chains."""
+
+    fragment = _cryozeta_common(
+        name=name, mode=mode, large=large, registration=registration, gpu_ids=gpu_ids
+    )
+    source: dict[str, Any] = {
+        "map": str(density_map),
+        "sequences": str(sequences),
+        "resolution": resolution,
+        "contour_level": contour,
+    }
+    chains = {
+        "protein": split_list(protein),
+        "dna": split_list(dna),
+        "rna": split_list(rna),
+    }
+    if any(chains.values()):
+        source["chains"] = chains
+    msa: dict[str, Any] = {}
+    if msa_dir is not None:
+        msa["precomputed_msa_dir"] = str(msa_dir)
+    if pairing_db:
+        msa["pairing_db"] = pairing_db
+    if msa:
+        source["msa"] = msa
+    fragment["input"] = source
+    return fragment
+
+
+def cryozeta_predict_json(
+    *,
+    name: str,
+    input_json: Path,
+    mode: str = "combined",
+    large: bool = False,
+    registration: str = "auto",
+    gpu_ids: str | None = None,
+) -> dict[str, Any]:
+    """Run a CryoZeta target list that was written by hand."""
+
+    fragment = _cryozeta_common(
+        name=name, mode=mode, large=large, registration=registration, gpu_ids=gpu_ids
+    )
+    fragment["input"] = {"json": str(input_json)}
+    return fragment
 
 
 def colabfold_predict(

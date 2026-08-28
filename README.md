@@ -10,7 +10,7 @@ rfdiffusion monomer 150 my_monomers -n 10
 rfdiffusion binder target.pdb 100 my_binders --chain B --hotspots B30,B33
 proteinmpnn design 7kdp.pdb 8 my_sequences --designable A:697-749
 colabfold predict my_sequences my_folds --msa-mode single_sequence
-cryozeta predict targets.json my_maps --gpu 0
+cryozeta predict map.map.gz chains.fasta my_model --resolution 2.99 --contour 0.3
 ```
 
 Each command wraps an existing installation instead of reimplementing the
@@ -90,7 +90,8 @@ of the files inside it, so `rfdiffusion monomer 150 my_monomers` writes
 | `rfdiffusion partial INPUT.pdb STEPS OUTPUT` | Diversify an existing structure |
 | `proteinmpnn design INPUT NUM_SEQUENCES OUTPUT` | Sequences for a PDB, or a folder of PDBs |
 | `colabfold predict SEQUENCES OUTPUT` | Fold sequences, or a whole ProteinMPNN run |
-| `cryozeta predict TARGETS.json OUTPUT` | CryoZeta inference on its own target JSON |
+| `cryozeta predict MAP CHAINS.fasta OUTPUT` | Model a structure into a cryo-EM map |
+| `cryozeta predict-json TARGETS.json OUTPUT` | CryoZeta run from a hand-written target JSON |
 
 Options shared by every quick command:
 
@@ -128,6 +129,13 @@ in the original PDB numbering, before it runs.
 `colabfold predict` warns you when a run would send sequences to the public
 MMseqs2 server, which the default MSA mode does. `--msa-mode single_sequence`
 keeps unpublished sequences on the machine.
+
+`cryozeta predict` writes CryoZeta's native target JSON for you from the map and
+a FASTA of the chains, so `--resolution` and `--contour` are the only extra
+things to supply. It reads the map header before starting, counts identical
+chains as copies, and steers complexes above ~2800 residues to `--large`. It
+will not guess whether an `ACGT`-only sequence is DNA or a peptide — say which
+with `--dna`, `--rna`, or `--protein`.
 
 ## Chaining a design run
 
@@ -216,7 +224,7 @@ hardcoded.
 - [RFdiffusion wrapper: quick commands, modes, and YAML fields](docs/rfdiffusion.md)
 - [ProteinMPNN wrapper: mutation masks, constraints, and batching](docs/proteinmpnn.md)
 - [ColabFold wrapper: folding designs, and keeping sequences local](docs/colabfold.md)
-- [CryoZeta wrapper: native JSON and inference modes](docs/cryozeta.md)
+- [CryoZeta wrapper: maps, chains, and the large-complex pipeline](docs/cryozeta.md)
 - [Adding a backend](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Optional: shared clusters and SLURM](docs/cluster.md)
