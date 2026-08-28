@@ -252,3 +252,36 @@ def test_a_supported_environment_still_gets_the_generic_note(
     assert any("no wheel for this Python and platform" in line for line in lines)
     # Nothing is blamed that the facts do not support.
     assert not any("ARM" in line or "neither builds for" in line for line in lines)
+
+
+def test_an_unsupported_python_is_caught_before_downloading(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Conda will build an environment on a Python PyTorch does not publish for."""
+
+    monkeypatch.setattr(
+        provision,
+        "environment_facts",
+        lambda name: {"python": "3.14.6", "tag": "cp314", "platform": "linux-x86_64"},
+    )
+    message = provision.unusable_python("SE3nv")
+    assert message is not None
+    assert "3.14.6" in message
+    assert "Nothing was downloaded" in message
+    assert "conda env remove -n SE3nv" in message
+
+
+def test_a_supported_python_passes_silently(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        provision,
+        "environment_facts",
+        lambda name: {"python": "3.10.14", "tag": "cp310", "platform": "linux-x86_64"},
+    )
+    assert provision.unusable_python("SE3nv") is None
+
+
+def test_an_unreadable_environment_is_not_condemned(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(provision, "environment_facts", lambda name: {})
+    assert provision.unusable_python("SE3nv") is None

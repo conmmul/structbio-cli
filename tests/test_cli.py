@@ -664,3 +664,21 @@ def test_env_verify_needs_the_environment_to_exist(
     result = runner.invoke(app, ["env", "verify", "proteinmpnn"])
     assert result.exit_code == 2
     assert "does not exist" in result.output
+
+
+def test_env_create_stops_when_the_old_environment_will_not_go(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rebuilding on top of a live prefix is how a stale Python survives."""
+
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    monkeypatch.setattr("structbio.provision.environment_exists", lambda name: True)
+
+    class _Failed:
+        returncode = 1
+
+    monkeypatch.setattr("structbio.cli.subprocess.run", lambda *a, **k: _Failed())
+    result = runner.invoke(app, ["env", "create", "proteinmpnn", "--force", "--yes"])
+    assert result.exit_code == 2
+    assert "could not be removed" in result.output
+    assert "conda env remove -n mlfold" in result.output

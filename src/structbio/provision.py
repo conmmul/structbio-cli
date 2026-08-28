@@ -242,6 +242,27 @@ def environment_facts(name: str) -> dict[str, str]:
     return {}
 
 
+def unusable_python(name: str) -> str | None:
+    """Say so when an environment's Python has no wheels, before downloading any.
+
+    Conda will happily build an environment on a Python that PyTorch does not
+    publish for, and pip then reports "from versions: none" several minutes
+    later without naming the reason.
+    """
+
+    facts = environment_facts(name)
+    tag = facts.get("tag")
+    if not tag or tag in SUPPORTED_PYTHON_TAGS:
+        return None
+    return (
+        f"{name} was built with Python {facts.get('python', tag)}, which PyTorch "
+        f"and DGL publish no CUDA wheels for; they cover "
+        f"{', '.join(SUPPORTED_PYTHON_TAGS)}. Nothing was downloaded.\n"
+        f"Remove it with 'conda env remove -n {name}' and re-run, or report this: "
+        "structbio asked conda for a supported Python and did not get one."
+    )
+
+
 def explain_pip_failure(name: str, output: str) -> list[str]:
     """Turn "No matching distribution" into the reason it actually happened."""
 

@@ -1051,9 +1051,15 @@ def env_create(
         raise typer.Exit(1)
     if exists:
         typer.echo(f"Removing the existing {plan.environment}...")
-        subprocess.run(
+        removed = subprocess.run(
             ["conda", "env", "remove", "-y", "-n", plan.environment], check=False
         )
+        if removed.returncode or provision.environment_exists(plan.environment):
+            _abort(
+                f"{plan.environment} could not be removed, so it would be rebuilt on "
+                "top of itself. Remove it by hand with "
+                f"'conda env remove -n {plan.environment}' and try again."
+            )
 
     for index, step in enumerate(plan.steps, start=1):
         typer.echo(f"\n[{index}/{len(plan.steps)}] {step.description}")
@@ -1071,6 +1077,11 @@ def env_create(
             captured.append(line)
             typer.echo(line.rstrip())
         returncode = process.wait()
+        if not returncode and index == 1:
+            mismatch = provision.unusable_python(plan.environment)
+            if mismatch:
+                typer.echo("\n" + mismatch, err=True)
+                raise typer.Exit(1)
         if returncode:
             typer.echo(
                 f"\nStep {index} failed with exit code {returncode}:\n"

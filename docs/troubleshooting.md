@@ -103,7 +103,13 @@ publishes no wheel for that environment's **Python version and platform** at
 all, neither of which pip mentions. `structbio env create` prints both after a
 failure, and `structbio env verify` prints them at any time.
 
-PyTorch and DGL publish CUDA wheels for cp38 to cp312 on x86_64 Linux only. So:
+PyTorch and DGL publish CUDA wheels for cp38 to cp312 on x86_64 Linux only. A
+recent Anaconda base ships Python 3.13 or 3.14, so an environment built without
+an explicit Python version lands outside that range. `structbio env create`
+pins one, checks it immediately after building the environment, and stops
+before downloading anything if it is wrong.
+
+So:
 
 - a Python 3.13 environment finds nothing, because those wheels do not exist;
 - an ARM machine finds nothing, because the CUDA indexes are x86_64 only.
