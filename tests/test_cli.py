@@ -401,3 +401,49 @@ def test_install_rejects_an_unknown_tool(tmp_path: Path, monkeypatch: pytest.Mon
     result = runner.invoke(app, ["install", "alphafold", "--dry-run"])
     assert result.exit_code == 2
     assert "known tools" in result.output
+
+
+def test_an_unavailable_tool_explains_why_and_how_to_fix_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {tmp_path / 'absent' / 'RFdiffusion'}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: none\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["rfdiffusion", "monomer", "80", "out"])
+    assert result.exit_code == 2
+    assert "the configured path does not exist" in result.output
+    assert "To fix it:" in result.output
+    assert "structbio install rfdiffusion" in result.output
+    assert not (tmp_path / "out").exists()
+
+
+def test_doctor_names_the_reason_a_tool_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "RFdiffusion"
+    checkout.mkdir()  # present, but the entry-point script is missing
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {checkout}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: none\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "CONFIGURED, UNAVAILABLE" in result.output
+    assert "does not contain scripts/run_inference.py" in result.output
+    assert "fix:" in result.output

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
@@ -123,6 +124,81 @@ def relevant_package_versions() -> dict[str, str]:
         except PackageNotFoundError:
             result[package] = "not-installed"
     return result
+
+
+def conda_environments() -> dict[str, Path]:
+    """Map conda environment names to their prefixes, if conda is installed."""
+
+    manager = shutil.which("conda") or shutil.which("mamba")
+    if manager is None:
+        return {}
+    output = command_output([manager, "env", "list", "--json"], timeout=20.0, only_on_success=True)
+    if not output:
+        return {}
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return {}
+    return {
+        prefix.name: prefix
+        for prefix in (Path(raw) for raw in payload.get("envs", []))
+        if prefix.is_dir()
+    }
+
+
+def diagnose_installation(
+    installation: ToolInstallation, *, tool: str, default_executable: str
+) -> tuple[list[str], list[str]]:
+    """Say exactly why a configured tool cannot be reached, and what to do.
+
+    "Configured but unavailable" has several quite different causes, and a
+    researcher cannot act on the difference unless it is spelled out.
+    """
+
+    problems: list[str] = []
+    remedies: list[str] = []
+    name = installation.executable or default_executable
+
+    if installation.path is not None:
+        path = installation.path.expanduser()
+        if not path.exists():
+            problems.append(f"the configured path does not exist: {path}")
+            remedies.append(f"structbio install {tool} --into {path.parent}")
+            remedies.append(
+                "or, if it is installed elsewhere, correct the path and re-run "
+                "'structbio detect'"
+            )
+        elif not path.is_dir():
+            problems.append(f"the configured path is not a folder: {path}")
+        elif not (path / name).exists():
+            problems.append(f"{path} exists but does not contain {name}")
+            remedies.append(
+                "the checkout is incomplete or is not the right project; "
+                f"see 'structbio install {tool} --dry-run'"
+            )
+    elif executable_path(installation) is None:
+        problems.append(f"{name} is not on PATH, and no path is configured for it")
+        remedies.append(f"structbio install {tool} --into ~/software")
+
+    if installation.manager == "conda":
+        if shutil.which("conda") is None and shutil.which("mamba") is None:
+            problems.append("conda is not installed, so its environment cannot be used")
+            remedies.append("install conda, or set manager: none if no environment is needed")
+        elif installation.environment:
+            environments = conda_environments()
+            if environments and installation.environment not in environments:
+                problems.append(
+                    f"the conda environment {installation.environment!r} does not exist"
+                )
+                remedies.append(
+                    f"create it with the steps from 'structbio install {tool} --dry-run', "
+                    "or correct 'environment' in the configuration"
+                )
+    elif installation.manager == "pixi" and shutil.which("pixi") is None:
+        problems.append("pixi is not installed")
+        remedies.append("curl -fsSL https://pixi.sh/install.sh | bash")
+
+    return problems, remedies
 
 
 def detect_unwrapped_tools() -> dict[str, str | None]:

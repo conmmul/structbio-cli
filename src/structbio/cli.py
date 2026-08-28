@@ -181,13 +181,16 @@ def _context(
 def _require_installed(loaded: LoadedConfig, backend: ToolBackend) -> Any:
     installation = _installation(loaded, backend)
     environment = backend.check_environment(installation)
-    if not environment.found:
-        details = "; ".join(environment.details)
-        _abort(
-            f"{backend.display_name} is not available on this machine. {details} "
-            f"Check paths with 'structbio doctor'."
-        )
-    return installation
+    if environment.found:
+        return installation
+    lines = [f"{backend.display_name} is not available on this machine."]
+    lines.extend(f"  {problem}" for problem in environment.problems or ("reason unknown",))
+    if environment.remedies:
+        lines.append("")
+        lines.append("To fix it:")
+        lines.extend(f"  {remedy}" for remedy in environment.remedies)
+    typer.echo("Error: " + "\n".join(lines), err=True)
+    raise typer.Exit(2)
 
 
 def _resolve_gpu(gpu: str | None) -> str | None:
@@ -1121,11 +1124,15 @@ def doctor() -> None:
         if check and check.configured and not check.found:
             status = "CONFIGURED, UNAVAILABLE"
         typer.echo(f"{backend.display_name:<22} {status}")
-        if installation and installation.environment:
-            typer.echo(f"{'Environment':<22} {installation.environment}")
         if check:
             for detail in check.details:
                 typer.echo(f"{'':<22} {detail}")
+            for problem in check.problems:
+                typer.echo(f"{'':<22} {problem}")
+            for remedy in check.remedies:
+                typer.echo(f"{'  fix:':<22} {remedy}")
+        elif installation is None:
+            typer.echo(f"{'  fix:':<22} structbio install {backend.name} --into ~/software")
         typer.echo("")
     typer.echo("Optional detected tools")
     for name, path in detect_unwrapped_tools().items():

@@ -271,8 +271,38 @@ What the tool statuses mean:
 | Status | Meaning | What to do |
 | --- | --- | --- |
 | `FOUND` | Installed and reachable. | Nothing. You can use it. |
-| `CONFIGURED, UNAVAILABLE` | The configuration points somewhere, but the program is not actually there. | Check the path with `structbio config`. The install may be incomplete. |
+| `CONFIGURED, UNAVAILABLE` | structbio has been told where it is, but it is not really there. | Read the lines underneath: they say why, and the `fix:` lines say what to run. |
 | `NOT CONFIGURED` | structbio does not know about it. | `structbio detect`, then `structbio setup --update`. If still missing, `structbio install TOOL`. |
+
+`CONFIGURED, UNAVAILABLE` is the one people meet most often, usually straight
+after a first install, and it always explains itself:
+
+```text
+RFdiffusion            CONFIGURED, UNAVAILABLE
+                       environment=SE3nv
+                       the configured path does not exist: /home/connor/software/RFdiffusion
+                       the conda environment 'SE3nv' does not exist
+  fix:                 structbio install rfdiffusion --into /home/connor/software
+  fix:                 or, if it is installed elsewhere, correct the path and re-run 'structbio detect'
+  fix:                 create it with the steps from 'structbio install rfdiffusion --dry-run', or correct 'environment' in the configuration
+```
+
+Read it as a sentence: **the folder is not there, and neither is the software
+environment.** Nothing is broken — the tool simply has not been installed yet.
+The configuration written by `structbio setup` lists all four tools as a
+starting point, so an entry existing does not mean the software does.
+
+The three things it distinguishes, and what each means:
+
+| The message says | What actually happened |
+| --- | --- |
+| `the configured path does not exist` | The tool was never installed, or it is somewhere else. |
+| `... exists but does not contain scripts/run_inference.py` | The folder is there but the download was incomplete, or it is a different project. |
+| `the conda environment 'X' does not exist` | The code is there but its software environment was never created — usually the install steps were stopped partway. |
+
+Run the `fix:` line that matches. If you have the tool installed somewhere
+else, `structbio detect` will find it and `structbio setup --update` will record
+it, which is quicker than editing the configuration by hand.
 
 `GPU NOT FOUND` on a laptop is normal. On the workstation it is a problem —
 report it.
@@ -552,8 +582,28 @@ rm -r my_designs
 
 ### `... is not available on this machine`
 
-The tool is not installed, or structbio cannot see it. Run `structbio doctor`
-and follow the table in [Part 3](#part-3--checking-that-it-works).
+The same situation as `CONFIGURED, UNAVAILABLE`, met while trying to run
+something. The error lists the reasons and then a `To fix it:` section:
+
+```text
+Error: RFdiffusion is not available on this machine.
+  the configured path does not exist: /home/connor/software/RFdiffusion
+  the conda environment 'SE3nv' does not exist
+
+To fix it:
+  structbio install rfdiffusion --into /home/connor/software
+  or, if it is installed elsewhere, correct the path and re-run 'structbio detect'
+  create it with the steps from 'structbio install rfdiffusion --dry-run', or correct 'environment' in the configuration
+```
+
+Nothing was created and nothing was harmed; the run stopped before it started.
+See the table in [Part 3](#part-3--checking-that-it-works) for what each reason
+means.
+
+If you do not intend to use that tool at all, remove its entry from
+`~/.config/structbio/config.yaml` — see
+[Step 5](#step-5--the-path-message) for how to edit a file — and it will stop
+being reported.
 
 ### `Chain 'X' is absent` or `Selection includes absent residue numbers`
 

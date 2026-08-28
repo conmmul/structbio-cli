@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from structbio.config import ResourceConfig, ToolInstallation, resolve_from_config
-from structbio.environment import executable_path
 from structbio.tools.base import (
     BackendContext,
     CommandPlan,
@@ -18,6 +16,7 @@ from structbio.tools.base import (
     EnvironmentCheck,
     ToolBackend,
     ValidationReport,
+    standard_environment_check,
     wrap_environment,
 )
 from structbio.validation import (
@@ -233,18 +232,10 @@ class RFDiffusionBackend(ToolBackend):
         )
 
     def check_environment(self, installation: ToolInstallation) -> EnvironmentCheck:
-        executable = executable_path(installation)
-        manager_ok = installation.manager != "conda" or shutil.which("conda") is not None
-        details = []
-        if installation.environment:
-            details.append(f"environment={installation.environment}")
-        if not manager_ok:
-            details.append("conda executable not found")
-        return EnvironmentCheck(
-            configured=installation.path is not None or executable is not None,
-            found=bool(executable and manager_ok),
-            executable=str(executable) if executable else None,
-            details=tuple(details),
+        return standard_environment_check(
+            installation,
+            tool=self.name,
+            default_executable="scripts/run_inference.py",
         )
 
 

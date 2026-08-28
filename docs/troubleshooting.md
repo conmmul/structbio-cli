@@ -44,17 +44,26 @@ version.
 
 ### CONFIGURED, UNAVAILABLE
 
-The configured script or environment manager is missing on this host. Check:
+`structbio doctor` names the specific reason and the fix beneath the status
+line. The distinctions it makes:
 
-```bash
-structbio doctor
-ls -l /configured/tool/path/relative/executable
-conda env list
-pixi --version
-```
+| Reason | Meaning |
+| --- | --- |
+| `the configured path does not exist` | Nothing is installed there. The default configuration lists every tool as a starting point, so an entry does not imply an installation. |
+| `the configured path is not a folder` | The `path` value points at a file. |
+| `... exists but does not contain EXECUTABLE` | Incomplete clone, or a different project, or `executable` is wrong for this version. |
+| `EXECUTABLE is not on PATH, and no path is configured` | For tools installed as a command rather than a checkout, such as ColabFold. |
+| `conda is not installed` | The entry asks for a conda environment on a machine without conda. Set `manager: none` if no environment is needed. |
+| `the conda environment 'X' does not exist` | The code is present but its environment was never created; the install steps were probably stopped partway. |
+| `pixi is not installed` | Needed by CryoZeta. |
 
-Only run commands that apply to the configured manager. A tool that lives on a
-shared filesystem is only usable from a machine that mounts it.
+A tool that lives on a shared filesystem is only usable from a machine that
+mounts it. If a tool is installed somewhere structbio does not know about,
+`structbio detect` followed by `structbio setup --update` is quicker than
+editing the configuration.
+
+To stop a tool being reported at all, delete its entry from the user
+configuration.
 
 ### structbio install stopped after cloning
 

@@ -83,6 +83,13 @@ class EnvironmentCheck:
     found: bool
     executable: str | None = None
     details: tuple[str, ...] = ()
+    problems: tuple[str, ...] = ()
+    remedies: tuple[str, ...] = ()
+
+    def explain(self) -> str:
+        """One line naming why the tool cannot be used, for an error message."""
+
+        return "; ".join(self.problems) if self.problems else "reason unknown"
 
 
 class ToolBackend(ABC):
@@ -112,6 +119,36 @@ class ToolBackend(ABC):
     def collect_outputs(self, experiment_dir: Path) -> list[Path]:
         output_dir = experiment_dir / "outputs"
         return sorted(path for path in output_dir.rglob("*") if path.is_file())
+
+
+def standard_environment_check(
+    installation: ToolInstallation,
+    *,
+    tool: str,
+    default_executable: str,
+    interface: str | None = None,
+) -> EnvironmentCheck:
+    """The reachability check shared by every backend."""
+
+    from structbio.environment import diagnose_installation, executable_path
+
+    executable = executable_path(installation)
+    problems, remedies = diagnose_installation(
+        installation, tool=tool, default_executable=default_executable
+    )
+    details: list[str] = []
+    if interface:
+        details.append(interface)
+    if installation.environment:
+        details.append(f"environment={installation.environment}")
+    return EnvironmentCheck(
+        configured=installation.path is not None or executable is not None,
+        found=bool(executable) and not problems,
+        executable=str(executable) if executable else None,
+        details=tuple(details),
+        problems=tuple(problems),
+        remedies=tuple(remedies),
+    )
 
 
 def wrap_environment(argv: list[str], installation: ToolInstallation) -> tuple[str, ...]:

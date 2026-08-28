@@ -18,14 +18,12 @@ Verified against kiharalab/CryoZeta main on 2026-08-28:
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from structbio.config import ResourceConfig, ToolInstallation, resolve_from_config
-from structbio.environment import executable_path
 from structbio.tools.base import (
     BackendContext,
     CommandPlan,
@@ -33,6 +31,7 @@ from structbio.tools.base import (
     EnvironmentCheck,
     ToolBackend,
     ValidationReport,
+    standard_environment_check,
 )
 from structbio.validation import (
     StructureValidationError,
@@ -509,16 +508,9 @@ class CryoZetaBackend(ToolBackend):
             path.write_text(content, encoding="utf-8")
 
     def check_environment(self, installation: ToolInstallation) -> EnvironmentCheck:
-        executable = executable_path(installation)
-        pixi = shutil.which("pixi")
-        details = [f"interface={STANDARD_SCRIPT} and {LARGE_SCRIPT} (official repository)"]
-        if installation.environment:
-            details.append(f"environment={installation.environment}")
-        if not pixi:
-            details.append("pixi executable not found")
-        return EnvironmentCheck(
-            configured=installation.path is not None or executable is not None,
-            found=bool(executable and pixi),
-            executable=str(executable) if executable else None,
-            details=tuple(details),
+        return standard_environment_check(
+            installation,
+            tool=self.name,
+            default_executable=STANDARD_SCRIPT,
+            interface=f"interface={STANDARD_SCRIPT} and {LARGE_SCRIPT} (official repository)",
         )
