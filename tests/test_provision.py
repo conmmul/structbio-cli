@@ -249,8 +249,8 @@ def test_a_supported_environment_still_gets_the_generic_note(
         lambda name: {"python": "3.10.4", "tag": "cp310", "platform": "linux-x86_64"},
     )
     lines = provision.explain_pip_failure("SE3nv", "from versions: none")
-    assert any("no wheel for this Python and platform" in line for line in lines)
-    # Nothing is blamed that the facts do not support.
+    # This environment IS published for, so the environment must not be blamed.
+    assert any("ARE published for" in line for line in lines)
     assert not any("ARM" in line or "neither builds for" in line for line in lines)
 
 
@@ -354,3 +354,64 @@ def test_the_reported_python_path_is_included_in_the_complaint(
     message = provision.unusable_python("SE3nv")
     assert "/opt/anaconda3/bin/python" in message
     assert "not inside that environment" in message
+
+
+def test_a_backup_name_never_collides(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        provision.environment,
+        "conda_environments",
+        lambda: {"SE3nv": Path("/a"), "SE3nv-before-1": Path("/b")},
+    )
+    assert provision.backup_name("SE3nv") == "SE3nv-before-2"
+
+
+def test_an_environment_is_renamed_not_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A researcher's working environment is not structbio's to destroy."""
+
+    calls: list[list[str]] = []
+
+    class _Ok:
+        returncode = 0
+
+    monkeypatch.setattr(
+        provision.environment, "conda_environments", lambda: {"SE3nv": Path("/a")}
+    )
+    monkeypatch.setattr(
+        provision.subprocess, "run", lambda argv, **k: calls.append(argv) or _Ok()
+    )
+    assert provision.move_aside("SE3nv") == "SE3nv-before-1"
+    assert calls == [["conda", "rename", "-n", "SE3nv", "SE3nv-before-1"]]
+    assert not any("remove" in " ".join(call) for call in calls)
+
+
+def test_a_failed_rename_is_reported_rather_than_forced(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Failed:
+        returncode = 1
+
+    monkeypatch.setattr(
+        provision.environment, "conda_environments", lambda: {"SE3nv": Path("/a")}
+    )
+    monkeypatch.setattr(provision.subprocess, "run", lambda argv, **k: _Failed())
+    assert provision.move_aside("SE3nv") is None
+
+
+def test_a_reachable_index_is_not_blamed_on_the_environment(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """cp310 on x86_64 is published for, so 'none' means the index was not read."""
+
+    monkeypatch.setattr(
+        provision,
+        "environment_facts",
+        lambda name: {"python": "3.10.21", "tag": "cp310", "platform": "linux-x86_64"},
+    )
+    lines = provision.explain_pip_failure("SE3nv", "from versions: none")
+    joined = " ".join(lines)
+    assert "ARE published for" in joined
+    assert "network" in joined
+    assert "proxy" in joined
+    # It must not claim the wheels are missing, which was the wrong answer.
+    assert "neither builds for" not in joined
+    assert "x86_64 only" not in joined

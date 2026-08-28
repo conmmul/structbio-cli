@@ -307,22 +307,39 @@ def explain_pip_failure(name: str, output: str) -> list[str]:
             f"The environment {name!r} runs Python {facts.get('python', '?')} "
             f"({facts.get('tag', '?')}) on {facts.get('platform', '?')}."
         )
-    lines.append(
-        "'from versions: none' means that index publishes no wheel for this "
-        "Python and platform at all, rather than that the version is wrong."
-    )
     tag = facts.get("tag", "")
     platform = facts.get("platform", "")
-    if tag and tag not in SUPPORTED_PYTHON_TAGS:
+    supported_python = not tag or tag in SUPPORTED_PYTHON_TAGS
+    supported_platform = not platform or "x86_64" in platform or "amd64" in platform
+
+    if not supported_python:
         lines.append(
             f"PyTorch and DGL publish wheels for {', '.join(SUPPORTED_PYTHON_TAGS)}; "
             f"this environment is {tag}, which neither builds for."
         )
-    if platform and "x86_64" not in platform and "amd64" not in platform:
+    if not supported_platform:
         lines.append(
             f"The platform is {platform}. The CUDA wheel indexes for PyTorch and "
             "DGL are x86_64 only, so an ARM machine cannot install from them. "
             "NVIDIA publishes its own PyTorch builds for ARM."
+        )
+    if supported_python and supported_platform:
+        # The index does publish for this environment, so pip did not read it.
+        lines.append(
+            "This Python and platform ARE published for, so the index was not read "
+            "properly rather than lacking the wheel. That is almost always the "
+            "network: a proxy, a firewall, or an internal mirror."
+        )
+        lines.append("Check whether this machine can reach the index at all:")
+        lines.append("  curl -sI https://download.pytorch.org/whl/cu118/torch/ | head -1")
+        lines.append(
+            "  echo $http_proxy $https_proxy $HTTP_PROXY $HTTPS_PROXY $no_proxy"
+        )
+        lines.append("  cat /etc/pip.conf ~/.pip/pip.conf ~/.config/pip/pip.conf")
+        lines.append(
+            "A site mirror configured in pip.conf, or a proxy that pip is not "
+            "using, produces exactly this message. pip prints the underlying "
+            "fetch failure only with -v."
         )
     return lines
 
@@ -566,6 +583,41 @@ def _rfdiffusion_common(name: str, checkout: Path) -> tuple[Step, ...]:
             ("conda", "run", "-n", name, "pip", "install", "--no-deps", "-e", str(checkout)),
         ),
     )
+
+
+def backup_name(name: str) -> str:
+    """A free name to move an environment aside to, never overwriting one."""
+
+    existing = environment.conda_environments()
+    for index in range(1, 100):
+        candidate = f"{name}-before-{index}"
+        if candidate not in existing:
+            return candidate
+    raise RuntimeError(f"No free backup name for {name}")
+
+
+def move_aside(name: str) -> str | None:
+    """Rename an environment out of the way. Returns the new name, or None.
+
+    Deleting is not structbio's to do: an environment a researcher built may be
+    the only working one on the machine, and rebuilding it is hours of their
+    time even when it succeeds.
+    """
+
+    target = backup_name(name)
+    try:
+        completed = subprocess.run(
+            ["conda", "rename", "-n", name, target],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode:
+        return None
+    return target
 
 
 def environment_exists(name: str) -> bool:

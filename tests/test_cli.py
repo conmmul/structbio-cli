@@ -666,19 +666,106 @@ def test_env_verify_needs_the_environment_to_exist(
     assert "does not exist" in result.output
 
 
-def test_env_create_stops_when_the_old_environment_will_not_go(
+def test_env_create_stops_rather_than_rebuilding_over_a_live_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Rebuilding on top of a live prefix is how a stale Python survives."""
 
     _conda_tool(tmp_path, monkeypatch, torch=None)
     monkeypatch.setattr("structbio.provision.environment_exists", lambda name: True)
-
-    class _Failed:
-        returncode = 1
-
-    monkeypatch.setattr("structbio.cli.subprocess.run", lambda *a, **k: _Failed())
+    monkeypatch.setattr("structbio.provision.move_aside", lambda name: None)
     result = runner.invoke(app, ["env", "create", "proteinmpnn", "--force", "--yes"])
     assert result.exit_code == 2
-    assert "could not be removed" in result.output
-    assert "conda env remove -n mlfold" in result.output
+    assert "could not be renamed" in result.output
+    assert "Nothing was changed" in result.output
+
+
+def test_env_create_keeps_the_previous_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--force must never destroy an environment somebody may depend on."""
+
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "structbio.provision.environment_exists", lambda name: not seen
+    )
+    monkeypatch.setattr(
+        "structbio.provision.move_aside",
+        lambda name: seen.append(name) or f"{name}-before-1",
+    )
+    monkeypatch.setattr("structbio.provision.unusable_python", lambda name: None)
+    monkeypatch.setattr("structbio.provision.environment_facts", lambda name: {})
+
+    class _Process:
+        returncode = 0
+        stdout = iter(())
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr("structbio.cli.subprocess.Popen", lambda *a, **k: _Process())
+    monkeypatch.setattr(
+        "structbio.provision.verify",
+        lambda tool, name, **k: __import__(
+            "structbio.provision", fromlist=["x"]
+        ).ProbeResult(ok=False, error="stopped here"),
+    )
+    result = runner.invoke(app, ["env", "create", "proteinmpnn", "--force", "--yes"])
+    assert "kept as mlfold-before-1" in result.output
+    assert "conda rename -n mlfold-before-1 mlfold" in result.output
+
+
+def test_env_adopt_records_an_environment_that_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The right answer when a setup already works is to use it."""
+
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    monkeypatch.setattr("structbio.provision.environment_exists", lambda name: True)
+    monkeypatch.setattr(
+        "structbio.provision.environment_facts",
+        lambda name: {"python": "3.10.21", "executable": "/envs/works/bin/python"},
+    )
+    monkeypatch.setattr(
+        "structbio.provision.verify",
+        lambda tool, name, **k: __import__("structbio.provision", fromlist=["x"]).ProbeResult(
+            ok=True,
+            values={
+                "torch": "2.3.1+cu118",
+                "torch_cuda": "11.8",
+                "cuda_available": True,
+                "device": "NVIDIA GeForce RTX 4090",
+                "gpu_allocation": True,
+                "numpy": True,
+            },
+        ),
+    )
+    result = runner.invoke(
+        app, ["env", "adopt", "proteinmpnn", "--environment", "works"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "RTX 4090" in result.output
+    written = yaml.safe_load((tmp_path / "user.yaml").read_text())
+    assert written["tools"]["proteinmpnn"]["environment"] == "works"
+
+
+def test_env_adopt_records_nothing_when_the_check_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    before = (tmp_path / "user.yaml").read_text()
+    monkeypatch.setattr("structbio.provision.environment_exists", lambda name: True)
+    monkeypatch.setattr("structbio.provision.environment_facts", lambda name: {})
+    monkeypatch.setattr(
+        "structbio.provision.verify",
+        lambda tool, name, **k: __import__("structbio.provision", fromlist=["x"]).ProbeResult(
+            ok=True, values={"torch_error": "No module named 'torch'"}
+        ),
+    )
+    result = runner.invoke(
+        app, ["env", "adopt", "proteinmpnn", "--environment", "broken"]
+    )
+    assert result.exit_code == 1
+    assert "Not recorded" in result.output
+    assert (tmp_path / "user.yaml").read_text() == before

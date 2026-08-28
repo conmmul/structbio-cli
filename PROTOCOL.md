@@ -217,7 +217,21 @@ structbio --version
 
 A version number means setup worked.
 
-### Step 6 — build the software environments
+### Step 6 — if a tool already works, say so
+
+If RFdiffusion or ProteinMPNN already runs for you from an environment you or a
+colleague built, do not let structbio rebuild anything. Point it at what works:
+
+```bash
+structbio env adopt rfdiffusion --environment the_env_that_works
+```
+
+It runs a short check inside that environment, and records it only if that
+passes. Nothing is installed, changed or removed. This is always the better
+option: a working environment took somebody hours, and rebuilding it risks
+losing it.
+
+### Step 6b — build the software environments
 
 For RFdiffusion and ProteinMPNN, one command sets up everything they need —
 the environment, PyTorch, and the graphics-card libraries — choosing versions
@@ -231,6 +245,14 @@ structbio env create rfdiffusion
 Add `--dry-run` first to see exactly what it will install without installing
 it. It asks before starting, and it downloads several gigabytes, so it takes a
 while.
+
+If an environment of that name already exists, `--force` does **not** delete
+it. It is renamed to `SE3nv-before-1` and left alone, and the command tells you
+how to put it back:
+
+```bash
+conda rename -n SE3nv-before-1 SE3nv
+```
 
 When it finishes it does not simply claim success: it runs code on the graphics
 card to prove the environment works, and tells you if it does not. You can

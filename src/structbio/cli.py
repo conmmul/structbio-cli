@@ -994,6 +994,55 @@ def env_verify(
         raise typer.Exit(1)
 
 
+@env_app.command("adopt")
+def env_adopt(
+    tool: str = typer.Argument(..., help="rfdiffusion, proteinmpnn, colabfold or cryozeta"),
+    environment_name: str = typer.Option(
+        ..., "--environment", "-e", help="The conda environment that already works"
+    ),
+) -> None:
+    """Record an environment that already works, instead of building one.
+
+    If you have a working setup, this is the right command: it checks that
+    environment by running code in it, and records it if that succeeds. Nothing
+    is installed, changed or removed.
+    """
+
+    installation, _ = _installation_for(tool)
+    if not provision.environment_exists(environment_name):
+        _abort(f"No conda environment named {environment_name!r}")
+    facts = provision.environment_facts(environment_name)
+    if facts.get("python"):
+        typer.echo(f"Python {facts['python']} at {facts.get('executable', '?')}")
+    typer.echo(f"Checking {environment_name} for {tool}...")
+    result = provision.verify(tool, environment_name)
+    if not _report_probe(tool, environment_name, result):
+        typer.echo(
+            "\nNot recorded, because it did not pass. If this environment does work "
+            "for you, the check is wrong and worth reporting.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    config_path = user_config_path()
+    if not config_path.exists():
+        _abort(f"No configuration at {config_path}; run 'structbio setup' first")
+    import yaml
+
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    tools = data.setdefault("tools", {})
+    entry = tools.setdefault(tool, {})
+    entry["environment"] = environment_name
+    entry.setdefault("manager", "conda")
+    backup = config_path.with_suffix(config_path.suffix + ".bak")
+    backup.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+    config_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    typer.echo(
+        f"\nRecorded {environment_name} for {tool} in {config_path} "
+        f"(previous version saved as {backup.name})."
+    )
+
+
 @env_app.command("create")
 def env_create(
     tool: str = typer.Argument(..., help="rfdiffusion or proteinmpnn"),
@@ -1049,17 +1098,21 @@ def env_create(
     ):
         typer.echo("Nothing was built.")
         raise typer.Exit(1)
+    moved: str | None = None
     if exists:
-        typer.echo(f"Removing the existing {plan.environment}...")
-        removed = subprocess.run(
-            ["conda", "env", "remove", "-y", "-n", plan.environment], check=False
-        )
-        if removed.returncode or provision.environment_exists(plan.environment):
+        typer.echo(f"Moving the existing {plan.environment} aside...")
+        moved = provision.move_aside(plan.environment)
+        if moved is None or provision.environment_exists(plan.environment):
             _abort(
-                f"{plan.environment} could not be removed, so it would be rebuilt on "
-                "top of itself. Remove it by hand with "
-                f"'conda env remove -n {plan.environment}' and try again."
+                f"{plan.environment} could not be renamed, so rebuilding would land "
+                "on top of it. Move it aside yourself with "
+                f"'conda rename -n {plan.environment} {plan.environment}-old' and "
+                "try again. Nothing was changed."
             )
+        typer.echo(
+            f"  kept as {moved}; restore it with "
+            f"'conda rename -n {moved} {plan.environment}'"
+        )
 
     for index, step in enumerate(plan.steps, start=1):
         typer.echo(f"\n[{index}/{len(plan.steps)}] {step.description}")
@@ -1097,6 +1150,12 @@ def env_create(
                 plan.environment, "".join(captured)
             ):
                 typer.echo(f"\n{explanation}", err=True)
+            if moved:
+                typer.echo(
+                    f"\nYour previous environment is intact as {moved}. Restore it "
+                    f"with: conda rename -n {moved} {plan.environment}",
+                    err=True,
+                )
             raise typer.Exit(returncode)
 
     typer.echo("\nBuilt. Checking that it really works...")

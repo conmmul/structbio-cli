@@ -91,6 +91,17 @@ The choice is deliberately conservative: a wheel built for a newer CUDA than
 the driver will not run, so a driver reporting 12.0 is given `cu118` rather
 than `cu121`.
 
+### An environment that already works
+
+Use it rather than replacing it:
+
+```bash
+structbio env adopt rfdiffusion --environment the_env_that_works
+```
+
+`env create --force` never deletes an environment either; it renames it to
+`NAME-before-N` and reports how to restore it.
+
 ### No matching distribution found for torch
 
 ```text
@@ -102,6 +113,19 @@ ERROR: Could not find a version that satisfies the requirement torch==2.3.*
 publishes no wheel for that environment's **Python version and platform** at
 all, neither of which pip mentions. `structbio env create` prints both after a
 failure, and `structbio env verify` prints them at any time.
+
+If the environment's Python and platform are ones the index does publish for —
+cp38 to cp312 on x86_64 Linux — then the index was not read, and the cause is
+the network rather than the versions: a proxy pip is not using, a firewall, or
+an internal mirror in `pip.conf`. Check with:
+
+```bash
+curl -sI https://download.pytorch.org/whl/cu118/torch/ | head -1
+```
+
+A `200 OK` means the index is reachable and something in pip's configuration is
+redirecting it. `pip -v` prints the underlying fetch failure that the ordinary
+message hides.
 
 PyTorch and DGL publish CUDA wheels for cp38 to cp312 on x86_64 Linux only. A
 recent Anaconda base ships Python 3.13 or 3.14, so an environment built without
