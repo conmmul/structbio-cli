@@ -1,7 +1,7 @@
 # structbio
 
 `structbio` is a  command-line
-interface for installed scientific software. This is specifically for software not currently adopted by SBGrid-cli. Many people in my lab don't run these on workstations locally, but it is a better option than using the thin colabs that are sometimes included. Hopefully this is an easier way to run these programs with more control. Will keep updating softwares.
+interface for installed scientific software. This is specifically for software not currently adopted by SBGrid-cli. Many people in my lab don't run these on workstations locally, but it is a better option than using the thin colabs that are sometimes included. Hopefully this is an easier way to run these programs with more control. Will keep updating softwares in the future.
 
 ## Install
 
