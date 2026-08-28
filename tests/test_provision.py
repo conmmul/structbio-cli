@@ -186,3 +186,69 @@ def test_the_probe_asks_about_each_tools_own_modules() -> None:
 
 def test_an_unknown_tool_still_produces_a_runnable_probe() -> None:
     compile(provision.probe_source("colabfold"), "<probe>", "exec")
+
+
+def test_the_torch_pin_allows_any_patch_release() -> None:
+    """A pinned patch release can be pruned from the index; the series is not."""
+
+    assert provision.TORCH_RELEASE.endswith(".*")
+
+
+def test_the_plan_checks_before_downloading_gigabytes(
+    rfdiffusion: ToolInstallation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _machine(monkeypatch, (8, 9))
+    plan = provision.plan_environment("rfdiffusion", rfdiffusion)
+    steps = [step.render() for step in plan.steps]
+    dry = next(index for index, step in enumerate(steps) if "--dry-run" in step)
+    install = next(
+        index
+        for index, step in enumerate(steps)
+        if "torch==" in step and "--dry-run" not in step
+    )
+    assert dry < install
+
+
+def test_a_python_outside_the_wheel_range_is_named(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        provision,
+        "environment_facts",
+        lambda name: {"python": "3.13.1", "tag": "cp313", "platform": "linux-x86_64"},
+    )
+    lines = provision.explain_pip_failure("SE3nv", "ERROR: from versions: none")
+    assert any("Python 3.13.1" in line for line in lines)
+    assert any("cp313, which neither builds for" in line for line in lines)
+
+
+def test_a_non_x86_platform_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        provision,
+        "environment_facts",
+        lambda name: {"python": "3.10.4", "tag": "cp310", "platform": "linux-aarch64"},
+    )
+    lines = provision.explain_pip_failure("SE3nv", "No matching distribution found")
+    assert any("x86_64 only" in line for line in lines)
+    assert any("ARM" in line for line in lines)
+
+
+def test_unrelated_failures_are_not_explained_away(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(provision, "environment_facts", lambda name: {})
+    assert provision.explain_pip_failure("SE3nv", "Connection timed out") == []
+
+
+def test_a_supported_environment_still_gets_the_generic_note(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        provision,
+        "environment_facts",
+        lambda name: {"python": "3.10.4", "tag": "cp310", "platform": "linux-x86_64"},
+    )
+    lines = provision.explain_pip_failure("SE3nv", "from versions: none")
+    assert any("no wheel for this Python and platform" in line for line in lines)
+    # Nothing is blamed that the facts do not support.
+    assert not any("ARM" in line or "neither builds for" in line for line in lines)

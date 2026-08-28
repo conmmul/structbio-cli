@@ -30,7 +30,10 @@ from structbio.config import ToolInstallation
 # download.pytorch.org/whl/ and data.dgl.ai/wheels/torch-2.3/. DGL builds cu124
 # too, but not against PyTorch 2.3, and PyTorch 2.3.1 has no cu124 wheel, so
 # that combination does not exist and is deliberately not offered.
-TORCH_RELEASE = "2.3.1"
+TORCH_RELEASE = "2.3.*"
+# The Python versions both PyTorch 2.3 and DGL publish CUDA wheels for, from
+# their indexes on 2026-08-28. An environment outside this range finds nothing.
+SUPPORTED_PYTHON_TAGS = ("cp38", "cp39", "cp310", "cp311", "cp312")
 DGL_TORCH_INDEX = "2.3"
 SUPPORTED_PAIRINGS: tuple[tuple[tuple[int, int], str], ...] = (
     ((11, 8), "cu118"),
@@ -201,6 +204,75 @@ def verify(tool: str, environment: str, timeout: float = 300.0) -> ProbeResult:
         tail = (completed.stderr or completed.stdout).strip().splitlines()
         result.error = tail[-1] if tail else f"exit code {completed.returncode}"
     return result
+
+
+FACTS_PROBE = (
+    "import json, sys, sysconfig; "
+    "print('STRUCTBIO_FACTS ' + json.dumps({"
+    "'python': '.'.join(str(p) for p in sys.version_info[:3]), "
+    "'tag': 'cp' + str(sys.version_info[0]) + str(sys.version_info[1]), "
+    "'platform': sysconfig.get_platform(), "
+    "'executable': sys.executable}))"
+)
+
+
+def environment_facts(name: str) -> dict[str, str]:
+    """The Python version and platform inside an environment, for diagnostics.
+
+    A "no matching distribution" from a wheel index is nearly always one of
+    these two, and neither appears in pip's message.
+    """
+
+    try:
+        completed = subprocess.run(
+            ["conda", "run", "-n", name, "python", "-c", FACTS_PROBE],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    for line in (completed.stdout + completed.stderr).splitlines():
+        if line.startswith("STRUCTBIO_FACTS "):
+            try:
+                return json.loads(line[len("STRUCTBIO_FACTS ") :])
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+
+def explain_pip_failure(name: str, output: str) -> list[str]:
+    """Turn "No matching distribution" into the reason it actually happened."""
+
+    if "No matching distribution" not in output and "from versions: none" not in output:
+        return []
+    facts = environment_facts(name)
+    lines: list[str] = []
+    if facts:
+        lines.append(
+            f"The environment {name!r} runs Python {facts.get('python', '?')} "
+            f"({facts.get('tag', '?')}) on {facts.get('platform', '?')}."
+        )
+    lines.append(
+        "'from versions: none' means that index publishes no wheel for this "
+        "Python and platform at all, rather than that the version is wrong."
+    )
+    tag = facts.get("tag", "")
+    platform = facts.get("platform", "")
+    if tag and tag not in SUPPORTED_PYTHON_TAGS:
+        lines.append(
+            f"PyTorch and DGL publish wheels for {', '.join(SUPPORTED_PYTHON_TAGS)}; "
+            f"this environment is {tag}, which neither builds for."
+        )
+    if platform and "x86_64" not in platform and "amd64" not in platform:
+        lines.append(
+            f"The platform is {platform}. The CUDA wheel indexes for PyTorch and "
+            "DGL are x86_64 only, so an ARM machine cannot install from them. "
+            "NVIDIA publishes its own PyTorch builds for ARM."
+        )
+    return lines
+
 
 
 def _pairing(needed: tuple[int, int], driver: tuple[int, int] | None) -> str | None:
@@ -385,6 +457,11 @@ def _rfdiffusion_plan(
             Step(
                 f"create the conda environment {name}",
                 ("conda", "create", "-y", "-n", name, "python=3.10"),
+            ),
+            Step(
+                f"check that PyTorch {TORCH_RELEASE} ({build}) can be installed here",
+                ("conda", "run", "-n", name, "pip", "install", "--dry-run",
+                 f"torch=={TORCH_RELEASE}", "--index-url", torch_index),
             ),
             Step(
                 f"install PyTorch {TORCH_RELEASE} ({build})",

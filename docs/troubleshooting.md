@@ -91,6 +91,28 @@ The choice is deliberately conservative: a wheel built for a newer CUDA than
 the driver will not run, so a driver reporting 12.0 is given `cu118` rather
 than `cu121`.
 
+### No matching distribution found for torch
+
+```text
+ERROR: Could not find a version that satisfies the requirement torch==2.3.*
+       (from versions: none)
+```
+
+`from versions: none` does not mean the version is wrong. It means the index
+publishes no wheel for that environment's **Python version and platform** at
+all, neither of which pip mentions. `structbio env create` prints both after a
+failure, and `structbio env verify` prints them at any time.
+
+PyTorch and DGL publish CUDA wheels for cp38 to cp312 on x86_64 Linux only. So:
+
+- a Python 3.13 environment finds nothing, because those wheels do not exist;
+- an ARM machine finds nothing, because the CUDA indexes are x86_64 only.
+  NVIDIA publishes its own PyTorch builds for ARM.
+
+The install is now preceded by a `pip install --dry-run`, so a mismatch stops
+in seconds rather than after a partial download, and the torch pin names a
+series rather than a patch release, which an index may prune.
+
 ### Environments a project pins
 
 RFdiffusion's `env/SE3nv.yml` fixes `pytorch=1.9` with `cudatoolkit=11.1` and

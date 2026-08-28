@@ -983,6 +983,12 @@ def env_verify(
     if not provision.environment_exists(name):
         _abort(f"The conda environment {name!r} does not exist; run 'structbio env create {tool}'")
     typer.echo(f"Checking {name}...")
+    facts = provision.environment_facts(name)
+    if facts:
+        typer.echo(
+            f"  Python {facts.get('python', '?')} ({facts.get('tag', '?')}) "
+            f"on {facts.get('platform', '?')}"
+        )
     if not _report_probe(tool, name, provision.verify(tool, name)):
         typer.echo(f"\nRebuild it with: structbio env create {tool} --force")
         raise typer.Exit(1)
@@ -1051,14 +1057,31 @@ def env_create(
 
     for index, step in enumerate(plan.steps, start=1):
         typer.echo(f"\n[{index}/{len(plan.steps)}] {step.description}")
-        result = subprocess.run(list(step.argv), check=False)
-        if result.returncode:
+        captured: list[str] = []
+        process = subprocess.Popen(
+            list(step.argv),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            bufsize=1,
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            captured.append(line)
+            typer.echo(line.rstrip())
+        returncode = process.wait()
+        if returncode:
             typer.echo(
-                f"\nStep {index} failed with exit code {result.returncode}: "
-                f"{step.render()}",
+                f"\nStep {index} failed with exit code {returncode}:\n"
+                f"  {step.render()}",
                 err=True,
             )
-            raise typer.Exit(result.returncode)
+            for explanation in provision.explain_pip_failure(
+                plan.environment, "".join(captured)
+            ):
+                typer.echo(f"\n{explanation}", err=True)
+            raise typer.Exit(returncode)
 
     typer.echo("\nBuilt. Checking that it really works...")
     if not _report_probe(tool, plan.environment, provision.verify(tool, plan.environment)):
