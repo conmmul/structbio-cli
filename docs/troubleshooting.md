@@ -84,10 +84,11 @@ runs code on the card.
 
 ### PyTorch
 
-`structbio fix-env` reads the CUDA version the NVIDIA driver reports, picks the
-newest PyTorch wheel index at or below it, and prints the install command.
-`--run` executes it after asking; `--force` replaces a PyTorch that is already
-there.
+`structbio env repair TOOL` installs a CUDA-capable PyTorch, and for
+RFdiffusion the matching DGL, into the environment that already exists. It
+shows the plan and asks first; `--dry-run` only shows it. Conda channels are
+used rather than pip, because a machine may reach `conda.anaconda.org` while it
+cannot reach `download.pytorch.org`.
 
 The build is read from the environment's `torch/version.py` rather than by
 importing torch, so the check costs nothing and works even when the
@@ -215,8 +216,8 @@ readily resolves a CPU-only build there. Installing a current PyTorch to fix
 that breaks the checkout, because SE3Transformer is built against the pinned
 version.
 
-`structbio fix-env` therefore refuses to touch such an environment and prints
-the repair the project's own pins imply:
+structbio therefore refuses to install a newer PyTorch into such an environment
+and prints the repair the project's own pins imply:
 
 ```bash
 conda install -n SE3nv -c pytorch -c nvidia pytorch=1.9 cudatoolkit=11.1

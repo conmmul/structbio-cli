@@ -372,44 +372,31 @@ structbio says from reading files is only a hint.
 
 ### PyTorch problems
 
-RFdiffusion and ProteinMPNN both need PyTorch, which has to match the graphics
-card driver on the machine. Getting the wrong one is the single most common
-installation problem, so structbio works out the right one for you:
+RFdiffusion and ProteinMPNN both need PyTorch built for the graphics card in
+this machine. Getting that wrong is the single most common installation
+problem. First ask the environment itself:
 
 ```bash
-structbio fix-env
+structbio env verify rfdiffusion
 ```
 
-It prints what it found and the exact command that would fix it:
-
-```text
-Driver CUDA: 12.4
-PyTorch build to use: cu124
-
-ProteinMPNN    mlfold: PyTorch is not installed
-               conda run -n mlfold pip install torch --index-url https://download.pytorch.org/whl/cu124
-
-Nothing was installed. Re-run with --run to install.
-```
-
-Nothing happens until you add `--run`:
+If it reports `CUDA none` or `no GPU`, the installed PyTorch has no
+graphics-card support at all. Repair it without rebuilding anything:
 
 ```bash
-structbio fix-env proteinmpnn --run
+structbio env repair rfdiffusion
 ```
 
-It will ask before installing anything, and it leaves a working PyTorch alone
-unless you add `--force`. If it says `no NVIDIA driver found`, you are on a
-machine without a graphics card and will get the CPU build, which is correct
-there — ProteinMPNN runs fine on a CPU, RFdiffusion realistically does not.
+It shows what it will change and asks before doing it, replacing only PyTorch
+and the graph library that goes with it. Add `--dry-run` to look first. When it
+finishes it checks the graphics card again, so you will know straight away.
 
 #### RFdiffusion is a special case
 
 RFdiffusion's environment is built from a file, `env/SE3nv.yml`, that fixes
 which version of everything gets installed — including an old PyTorch that the
 rest of the checkout is built against. **Installing a newer PyTorch there will
-break it**, so `structbio fix-env` refuses to, and tells you the right repair
-instead:
+break it**, so structbio refuses to, and tells you the right repair instead:
 
 ```text
 RFdiffusion    SE3nv: PyTorch 1.9.1.post3, CPU-only build

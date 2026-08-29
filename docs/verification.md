@@ -46,6 +46,38 @@ Finally remove the clone: `cd /tmp && rm -rf verify-structbio`.
 
 ---
 
+## Stage 0b — the environments (workstation, ~15 minutes)
+
+Before any tool test, settle the environment question. It is where the time
+goes, and `env verify` answers it in seconds.
+
+```bash
+structbio gpu
+structbio env verify rfdiffusion
+structbio env verify proteinmpnn
+```
+
+- [ ] `structbio gpu` names every card and its compute capability.
+- [ ] Each `env verify` prints the card's name and no `FAILED` lines.
+
+`CUDA none` or `no GPU` means the installed PyTorch has no CUDA support, which
+is the usual outcome of RFdiffusion's own install because `env/SE3nv.yml` lists
+the general conda channels ahead of the `pytorch` one. Repair rather than
+rebuild:
+
+```bash
+structbio env repair rfdiffusion
+```
+
+- [ ] After repairing, `env verify` passes.
+- [ ] `structbio doctor` reads `FOUND` rather than `FOUND, WITH WARNINGS`.
+
+Confirmed working on 2026-08-29: two RTX 4090s (compute capability 8.9, driver
+580.173.02), Python 3.9 in a miniconda `SE3nv`, repaired with
+`pytorch=2.3.1=py3.9_cuda11.8_cudnn8.7.0_0` and `dgl=2.4.0.th23.cu118=py39_0`
+from the conda channels. That machine cannot reach `download.pytorch.org`, so
+the conda route was the only one that worked.
+
 ## Stage 1 — ProteinMPNN (workstation, ~30 minutes)
 
 The cheapest real test: its model weights ship inside the repository, and it
@@ -225,6 +257,9 @@ protocol is cheaper to change than everyone's habits.
 
 - Wrapper flags were verified against each project's published interface, not
   against your installed versions, until the stages above are done.
+- RFdiffusion on an Ada, Hopper or Blackwell card needs a PyTorch newer than
+  the one it pins. That combination works but is not one the RFdiffusion
+  authors publish, so check early designs against a known result.
 - SLURM support exists but is untested on a real cluster; it is not needed on a
   workstation.
 - There is no filtering or scoring step yet: ColabFold will fold designs, but

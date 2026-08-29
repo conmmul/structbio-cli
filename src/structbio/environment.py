@@ -562,7 +562,7 @@ def diagnose_torch(
             "the tool will probably fail to import it"
         )
         remedies.extend(
-            pinned.remedies(environment) if pinned else [f"structbio fix-env, or run: {upgrade}"]
+            pinned.remedies(environment) if pinned else [f"structbio env repair {tool_name}, or run: {upgrade}"]
         )
         return problems, warnings, remedies
 
@@ -595,7 +595,7 @@ def diagnose_torch(
         remedies.extend(
             pinned.remedies(environment)
             if pinned
-            else [f"structbio fix-env --force, or run: {upgrade}"]
+            else [f"structbio env repair {tool_name}, or run: {upgrade}"]
         )
     elif torch.cuda and driver:
         older = unsupported_by(torch.cuda)
@@ -629,7 +629,7 @@ def diagnose_torch(
             remedies.extend(
                 pinned.remedies(environment)
                 if pinned
-                else [f"structbio fix-env --force, or run: {upgrade}"]
+                else [f"structbio env repair {tool_name}, or run: {upgrade}"]
             )
     return problems, warnings, remedies
 

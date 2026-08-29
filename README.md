@@ -46,10 +46,14 @@ It looks on PATH, through your conda and pixi environments, and in the usual
 software directories. `structbio detect` runs the same scan without writing
 anything, and `structbio setup --update` adds newly found tools to a
 configuration you already have, keeping a `.bak` copy and never changing an
-entry you wrote yourself. Those commands are tiny
-wrappers: `rfdiffusion ...` is exactly `structbio rfdiffusion ...`. The same
-wrappers are checked into [`bin/`](bin) if you would rather copy them into a
-shared directory yourself.
+entry you wrote yourself.
+
+The commands it installs are tiny wrappers: `rfdiffusion ...` is exactly
+`structbio rfdiffusion ...`. Each names its interpreter outright, so it runs
+this installation whatever virtual environment happens to be active — which
+matters if more than one clone of this repository exists on the machine. The
+same wrappers are checked into [`bin/`](bin) if you would rather copy them into
+a shared directory yourself.
 
 If `setup` reports that `~/.local/bin` is not on your PATH, do what it says
 before going further, or the shell will not find the commands:
@@ -59,69 +63,74 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Edit the configuration so every path points at software that is already
-installed on the workstation:
-
-```yaml
-tools:
-  rfdiffusion:
-    path: ~/software/RFdiffusion
-    executable: scripts/run_inference.py
-    manager: conda
-    environment: SE3nv
-  proteinmpnn:
-    path: ~/software/ProteinMPNN
-    executable: protein_mpnn_run.py
-    manager: conda
-    environment: mlfold
-  colabfold:
-    executable: colabfold_batch
-    manager: none
-```
-
-`path` is the root of the upstream checkout and `executable` is relative to it.
-
-### Installing a tool you do not have
-
-```bash
-structbio install rfdiffusion --into ~/software
-```
-
-This clones the project, records its path in your configuration, and then
-prints that project's own remaining setup steps — creating the conda
-environment and downloading the model weights — for you to run.
-
-`structbio` deliberately stops before those steps. They differ per machine,
-change with each upstream release, and in CryoZeta's case the weights are
-licensed for academic and non-commercial use only, which is not a decision a
-wrapper should make for you. `--dry-run` shows the whole plan, including the
-licence, without cloning anything.
-
-Then confirm what the workstation can reach:
+Then check what the workstation can reach:
 
 ```bash
 structbio doctor
-structbio tools
-structbio config
+structbio gpu
 ```
 
-RFdiffusion and ProteinMPNN need a Conda environment with a PyTorch matching
-the GPU. One command builds it, choosing versions from the card actually
-present, and then proves it works by computing on that card:
+### Getting the environments right
+
+RFdiffusion and ProteinMPNN run from a Conda environment that has to contain a
+PyTorch built for the GPU in the machine. That single requirement causes almost
+all setup trouble, so take these in order.
+
+**1. If a tool already runs for you, say so.** This is always the right first
+move, and nothing is installed or changed:
 
 ```bash
-structbio env create rfdiffusion
+structbio env adopt rfdiffusion --environment SE3nv
+```
+
+It runs code inside that environment and records it only if that succeeds.
+
+**2. If PyTorch cannot see the GPU, repair the environment in place.**
+
+```bash
 structbio env verify rfdiffusion
 ```
 
-Where no working combination of versions exists — an RTX 50-series card, for
-instance, which needs CUDA 12.8 while DGL publishes nothing past 12.4 — it says
-so and stops, rather than building something that cannot run.
+```text
+PyTorch 1.9.1.post3 (CUDA none), device: no GPU
+FAILED: PyTorch 1.9.1.post3 is installed but reports no usable GPU
+```
 
-For a smaller repair to an existing environment, `structbio fix-env` prints the
-PyTorch command this machine needs; `--run` performs it.
+`CUDA none` means the installed PyTorch was built without CUDA at all. This is
+the single most common problem: RFdiffusion's `env/SE3nv.yml` lists the general
+conda channels ahead of the `pytorch` one, so conda readily picks a CPU build,
+and a `.postN` version number is the tell-tale.
 
-A tool is ready only when `doctor` reports it as `FOUND`.
+```bash
+structbio env repair rfdiffusion
+```
+
+That replaces only PyTorch, and for RFdiffusion the matching DGL, leaving
+everything else in the environment alone. It installs **from the conda
+channels**, which matters: a machine may reach `conda.anaconda.org` while it
+cannot reach `download.pytorch.org`, and a pip-based install then cannot work
+at all.
+
+**3. Only if there is no environment yet, build one.**
+
+```bash
+structbio env create rfdiffusion
+```
+
+This chooses versions from the GPU actually present and refuses where no
+working combination exists — an RTX 50-series card, for instance, needs CUDA
+12.8 while DGL publishes nothing past 12.4.
+
+`env create --force` never deletes anything: an existing environment is renamed
+to `NAME-before-1` and the command tells you how to put it back.
+
+### What to trust
+
+`structbio env verify` is the authority, because it runs code and computes on
+the GPU. Everything else structbio reports about versions comes from reading
+files, and is advisory only — those readings have been wrong, so they warn and
+never refuse. `doctor` showing `FOUND, WITH WARNINGS` means the tool works and
+something may be slower than it needs to be.
 
 ## Quick commands
 
@@ -253,8 +262,12 @@ folder you name, and `structbio status` lists those runs.
 | `structbio TOOL command CONFIG.yaml` | no | no |
 | `structbio proteinmpnn inspect-mask CONFIG.yaml` | no | no |
 | `structbio status [FOLDER \| EXPERIMENT_ID]` | no | no |
-| `structbio detect` | no | no |
+| `structbio detect` / `structbio gpu` | no | no |
 | `structbio install TOOL` | clones a project | no |
+| `structbio env verify TOOL` | no | runs a short check on the GPU |
+| `structbio env adopt TOOL` | no | runs a short check on the GPU |
+| `structbio env repair TOOL` | changes one environment | no |
+| `structbio env create TOOL` | builds an environment | no |
 | `structbio setup` / `doctor` / `tools` / `config` | configuration only | no |
 
 ## Configuration precedence
