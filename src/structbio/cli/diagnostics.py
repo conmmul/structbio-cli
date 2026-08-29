@@ -110,6 +110,8 @@ def doctor() -> None:
 
     settings = load_settings()
     gpu = environment.detect_gpu()
+    ready: list[str] = []
+    unreachable: list[str] = []
     typer.echo("structbio workstation\n")
     # Name the running installation: several checkouts on one machine is the
     # usual reason a command is reported as missing.
@@ -137,6 +139,7 @@ def doctor() -> None:
         elif check and check.configured and not check.found:
             status = "CONFIGURED, UNAVAILABLE"
         typer.echo(f"{backend.display_name:<22} {status}")
+        (ready if status.startswith("FOUND") else unreachable).append(backend.name)
         if check:
             for detail in check.details:
                 typer.echo(f"{'':<22} {detail}")
@@ -154,6 +157,22 @@ def doctor() -> None:
         typer.echo(f"{name:<22} {'FOUND' if path else 'NOT FOUND'}")
     slurm = "FOUND" if shutil.which("sbatch") else "NOT FOUND"
     typer.echo(f"{'SLURM (cluster only)':<22} {slurm}")
+    _summarize(ready, unreachable)
+
+
+def _summarize(ready: list[str], unreachable: list[str]) -> None:
+    """End with the one thing to do next, rather than leaving a wall of status."""
+
+    if ready:
+        typer.echo("\nReady to run: " + ", ".join(ready))
+    if not unreachable:
+        return
+    typer.echo(
+        "\nNot usable yet: "
+        + ", ".join(unreachable)
+        + "\n  Each 'fix:' line above is the command for that one. If you have since"
+        "\n  installed or built something, 'structbio setup' records it."
+    )
 
 
 @app.command("status")

@@ -22,13 +22,18 @@ Proves the package installs cleanly from a fresh clone.
 cd /tmp
 git clone https://github.com/conmmul/structbio-cli.git verify-structbio
 cd verify-structbio
-python3 -m venv .venv
+./install.sh --no-path
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m pytest -q
+ruff check .
 ```
 
-- [ ] The clone, the install, and the test suite all succeed.
+`--no-path` keeps this throwaway clone out of your shell configuration; a real
+installation leaves it off.
+
+- [ ] The clone, the install, the test suite, and the lint all succeed.
+- [ ] `structbio setup` printed a scan, a configuration path, and the commands.
 - [ ] `structbio --version` prints a version.
 - [ ] `structbio doctor` runs and its `package` line points at this clone.
 - [ ] `structbio detect` completes in a second or two.
@@ -46,7 +51,9 @@ structbio cryozeta predict-json examples/cryozeta/native_input.example.json t4 -
 - [ ] Each prints a command and says nothing was created.
 - [ ] No folders `t1`–`t4` exist afterwards (`ls`).
 
-Finally remove the clone: `cd /tmp && rm -rf verify-structbio`.
+Finally remove the clone: `cd /tmp && rm -rf verify-structbio`. If you ran
+`install.sh` without `--no-path`, remove the line it added to your shell
+start-up file too.
 
 ---
 

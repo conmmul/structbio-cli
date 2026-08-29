@@ -480,6 +480,31 @@ def test_doctor_names_the_reason_a_tool_is_unavailable(
     assert "fix:" in result.output
 
 
+def test_doctor_ends_with_what_can_and_cannot_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wall of status is only useful if it ends with the answer."""
+
+    checkout = tmp_path / "RFdiffusion" / "scripts"
+    checkout.mkdir(parents=True)
+    (checkout / "run_inference.py").touch()
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {tmp_path / 'RFdiffusion'}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: none\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "Ready to run: rfdiffusion" in result.output
+    assert "Not usable yet:" in result.output
+    assert "structbio setup" in result.output
+
+
 def _conda_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, torch: str | None) -> Path:
     """A ProteinMPNN checkout plus a conda environment, with or without torch."""
 
