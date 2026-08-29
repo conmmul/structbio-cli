@@ -138,6 +138,16 @@ def prepare_output_dir(output_dir: Path) -> ExperimentPaths:
     return paths
 
 
+def tail(path: Path, lines: int = 25) -> list[str]:
+    """The last lines of a log, for showing why a run failed where it failed."""
+
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return [line for line in content.splitlines() if line.strip()][-lines:]
+
+
 def read_metadata(output_dir: Path) -> dict[str, Any] | None:
     """Return the recorded metadata for a workstation output folder, if any."""
 

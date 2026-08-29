@@ -745,3 +745,41 @@ def test_env_create_will_not_replace_an_environment_that_works(
     assert "already works" in result.output
     assert "env adopt proteinmpnn" in result.output
     assert moved == []
+
+
+def test_a_failed_run_shows_the_tools_own_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reason belongs next to the failure, not only in a file."""
+
+    checkout = tmp_path / "RFdiffusion" / "scripts"
+    checkout.mkdir(parents=True)
+    script = checkout / "run_inference.py"
+    script.write_text(
+        "import sys\n"
+        "print('starting', flush=True)\n"
+        "print('RuntimeError: CUDA out of memory', file=sys.stderr, flush=True)\n"
+        "sys.exit(1)\n"
+    )
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {tmp_path / 'RFdiffusion'}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: none\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["rfdiffusion", "monomer", "40", "out", "--quiet"])
+    assert result.exit_code == 1
+    assert "RFdiffusion failed with exit code 1" in result.output
+    assert "Last lines of stderr.log" in result.output
+    assert "CUDA out of memory" in result.output
+
+    # And again afterwards, from the recorded run.
+    status = runner.invoke(app, ["status", "out"])
+    assert status.exit_code == 0, status.output
+    assert "CUDA out of memory" in status.output

@@ -42,6 +42,7 @@ from structbio.experiment import (
     prepare_output_dir,
     read_metadata,
     safe_name,
+    tail,
     update_metadata,
     write_records,
 )
@@ -133,6 +134,20 @@ def _backend_for(
     backend = get_backend(tool)
     config = backend.parse_config(loaded.data, loaded.source)
     return loaded, backend, config
+
+
+def _show_failure(display_name: str, return_code: int, paths: ExperimentPaths) -> None:
+    """Put the tool's own last words next to the failure, not in a file."""
+
+    typer.echo(f"\n{display_name} failed with exit code {return_code}.", err=True)
+    for stream, path in (("stderr", paths.stderr), ("stdout", paths.stdout)):
+        lines = tail(path)
+        if lines:
+            typer.echo(f"\nLast lines of {stream}.log:", err=True)
+            for line in lines:
+                typer.echo(f"  {line}", err=True)
+            break
+    typer.echo(f"\nFull logs: {paths.stderr.parent}", err=True)
 
 
 def _show_report(report: ValidationReport) -> None:
@@ -324,7 +339,7 @@ def _quick_run(
     typer.echo(f"Output folder: {paths.outputs}")
     return_code = execute_plan(plan, paths, stream=not quiet)
     if return_code:
-        typer.echo(f"Failed with exit code {return_code}; see {paths.stderr}", err=True)
+        _show_failure(backend.display_name, return_code, paths)
         raise typer.Exit(return_code)
     typer.echo(f"Done. Results are in {paths.outputs}")
 
@@ -728,7 +743,7 @@ def _run_command(
     typer.echo(f"Experiment: {paths.root}")
     return_code = execute_plan(plan, paths, stream=not quiet)
     if return_code:
-        typer.echo(f"Execution failed with exit code {return_code}; see {paths.stderr}", err=True)
+        _show_failure(backend.display_name, return_code, paths)
         raise typer.Exit(return_code)
     typer.echo(f"Completed. Outputs: {paths.outputs}")
 
@@ -1551,6 +1566,12 @@ def status(
             ):
                 if metadata.get(key) is not None:
                     typer.echo(f"{key:<24} {metadata[key]}")
+            if metadata.get("status") == "failed":
+                lines = tail(direct_paths(candidate).stderr)
+                if lines:
+                    typer.echo("\nLast lines of stderr.log:")
+                    for line in lines:
+                        typer.echo(f"  {line}")
             return
 
     experiments_root = (root or load_settings().experiments_root).expanduser().resolve()
