@@ -7,13 +7,31 @@ validation, command construction, generated sidecar files, and output discovery.
 
 | Module | Responsibility |
 | --- | --- |
-| `cli.py` | Typer commands: the short positional form and the YAML form. |
+| `cli/` | Typer commands, one module per kind (see below). |
 | `quick.py` | Positional arguments to configuration mappings, plus contigs derived from a structure. |
 | `config.py` | Layered configuration, from package defaults to `--set`. |
+| `autoconfig.py` | Finding an unconfigured tool the first time a command needs it. |
+| `onboard.py` | Whether a configured tool can actually run, and the one command that fixes it. |
+| `discovery.py` | Scanning the machine for installed scientific software. |
+| `provision.py` | Environment plans, and the probe that proves an environment works. |
 | `experiment.py` | Output folders, dated experiment folders, provenance records. |
 | `execution.py` | Sequential, no-shell execution of a command plan. |
-| `wrappers.py` | The generated per-tool shell commands. |
+| `wrappers.py` | The generated per-tool shell commands, and putting them on PATH. |
 | `slurm.py` | Optional cluster script generation. |
+
+Inside `cli/`, every module registers its own commands when imported, and
+`cli/__init__.py` imports them in the order they should be listed in
+`structbio --help`:
+
+| Module | Commands |
+| --- | --- |
+| `app.py` | The Typer groups and the option help shared across them. |
+| `support.py` | Helpers used by more than one command module. |
+| `workstation.py` | `setup`, `detect`, `install`, `install-wrappers`, `shell-init`, `config`. |
+| `environments.py` | `env verify`, `env adopt`, `env repair`, `env create`. |
+| `diagnostics.py` | `gpu`, `validate`, `tools`, `doctor`, `status`. |
+| `runs.py` | The short positional commands. |
+| `configs.py` | The YAML commands, on each tool group. |
 
 Implement `ToolBackend` in `src/structbio/tools/`:
 
