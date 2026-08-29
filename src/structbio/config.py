@@ -69,7 +69,7 @@ class ToolInstallation(BaseModel):
     executable: str | None = None
 
     @model_validator(mode="after")
-    def expand_path(self) -> "ToolInstallation":
+    def expand_path(self) -> ToolInstallation:
         if self.path is not None:
             self.path = self.path.expanduser()
         return self

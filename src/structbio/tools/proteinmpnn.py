@@ -44,7 +44,7 @@ class MPNNInput(BaseModel):
     directory: Path | None = None
 
     @model_validator(mode="after")
-    def exactly_one_source(self) -> "MPNNInput":
+    def exactly_one_source(self) -> MPNNInput:
         if (self.pdb is None) == (self.directory is None):
             raise ValueError("Set exactly one of input.pdb or input.directory")
         return self
@@ -63,7 +63,7 @@ class MPNNDesign(BaseModel):
     model_name: str = "v_48_020"
 
     @model_validator(mode="after")
-    def validate_sampling(self) -> "MPNNDesign":
+    def validate_sampling(self) -> MPNNDesign:
         if any(value <= 0 or value > 1 for value in self.temperatures):
             raise ValueError("design.temperatures must be greater than 0 and at most 1")
         if self.num_sequences % self.batch_size:
@@ -81,7 +81,7 @@ class MPNNConstraints(BaseModel):
     bias_by_position: dict[str, dict[str, float]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_amino_acids(self) -> "MPNNConstraints":
+    def validate_amino_acids(self) -> MPNNConstraints:
         values = [self.omit_aas, *self.omit_by_position.values()]
         keys = list(self.bias_aas) + [
             aa for values_by_aa in self.bias_by_position.values() for aa in values_by_aa

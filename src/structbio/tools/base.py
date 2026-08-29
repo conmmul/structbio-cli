@@ -106,7 +106,7 @@ class ToolBackend(ABC):
     needs_torch: bool = False
     # Set when an upstream file fixes the environment's versions, in which case
     # PyTorch must be repaired as that project defines it, never upgraded.
-    pinned_environment: "PinnedEnvironment | None" = None
+    pinned_environment: PinnedEnvironment | None = None
 
     @abstractmethod
     def parse_config(self, raw: dict[str, Any], source: Path) -> BaseModel:
@@ -124,8 +124,12 @@ class ToolBackend(ABC):
     def check_environment(self, installation: ToolInstallation) -> EnvironmentCheck:
         raise NotImplementedError
 
-    def materialize_artifacts(self, plan: CommandPlan) -> None:
-        """Write generated files only inside a newly created experiment."""
+    def materialize_artifacts(self, plan: CommandPlan) -> None:  # noqa: B027
+        """Write generated files only inside a newly created experiment.
+
+        Optional: most backends have nothing to write, so this is deliberately
+        not abstract.
+        """
 
     def collect_outputs(self, experiment_dir: Path) -> list[Path]:
         output_dir = experiment_dir / "outputs"
@@ -139,7 +143,7 @@ def standard_environment_check(
     default_executable: str,
     interface: str | None = None,
     needs_torch: bool = False,
-    pinned: "PinnedEnvironment | None" = None,
+    pinned: PinnedEnvironment | None = None,
 ) -> EnvironmentCheck:
     """The reachability check shared by every backend."""
 

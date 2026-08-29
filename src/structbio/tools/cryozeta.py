@@ -111,7 +111,7 @@ class CryoInput(BaseModel):
     msa: MSASettings = Field(default_factory=MSASettings)
 
     @model_validator(mode="after")
-    def one_complete_source(self) -> "CryoInput":
+    def one_complete_source(self) -> CryoInput:
         built = self.map is not None
         if (self.json_path is None) == (not built):
             raise ValueError(
@@ -149,7 +149,7 @@ class CryoZetaConfig(BaseModel):
     resources: ResourceConfig = Field(default_factory=lambda: ResourceConfig(gpus=1))
 
     @model_validator(mode="after")
-    def check_selection(self) -> "CryoZetaConfig":
+    def check_selection(self) -> CryoZetaConfig:
         if any(value < 0 for value in self.gpu_ids):
             raise ValueError("gpu_ids cannot contain negative values")
         if len(set(self.gpu_ids)) != len(self.gpu_ids):
@@ -215,7 +215,7 @@ def build_targets(config: CryoZetaConfig) -> list[dict[str, Any]]:
     ]
 
 
-def target_chains(config: "CryoZetaConfig") -> int | None:
+def target_chains(config: CryoZetaConfig) -> int | None:
     """Total chain copies the target list describes."""
 
     backend = CryoZetaBackend()

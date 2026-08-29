@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -1226,7 +1225,7 @@ def env_adopt(
     is installed, changed or removed.
     """
 
-    installation, _ = _installation_for(tool)
+    _installation_for(tool)  # rejects an unknown or unconfigured tool
     if not provision.environment_exists(environment_name):
         _abort(f"No conda environment named {environment_name!r}")
     facts = provision.environment_facts(environment_name)

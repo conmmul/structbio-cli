@@ -280,7 +280,7 @@ def test_hand_written_sequence_entries_are_checked(tmp_path: Path) -> None:
 
 def test_exactly_one_input_source_is_required(tmp_path: Path) -> None:
     backend = CryoZetaBackend()
-    with pytest.raises(ValidationError, match="Set either input.json"):
+    with pytest.raises(ValidationError, match=r"Set either input\.json"):
         backend.parse_config(
             {"tool": "cryozeta", "experiment": {"name": "x"}, "input": {}},
             tmp_path / "dataset.yaml",

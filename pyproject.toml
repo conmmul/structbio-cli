@@ -20,6 +20,7 @@ dependencies = [
 dev = [
   "pytest>=8,<10",
   "pytest-cov>=5,<8",
+  "ruff>=0.6",
 ]
 
 [project.scripts]
@@ -32,3 +33,21 @@ packages = ["src/structbio"]
 addopts = "-ra"
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+  # Long lines are only ever quoted upstream commands and error text.
+  "E501",
+  # typer.Option(...) and typer.Argument(...) in a default is how Typer
+  # declares a parameter; there is no other way to write it.
+  "B008",
+]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2

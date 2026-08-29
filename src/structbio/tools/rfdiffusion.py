@@ -75,7 +75,7 @@ class RFDiffusionConfig(BaseModel):
     hydra_overrides: dict[str, str | int | float | bool] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def check_mode_fields(self) -> "RFDiffusionConfig":
+    def check_mode_fields(self) -> RFDiffusionConfig:
         if self.design.mode == "symmetry" and not self.design.symmetry:
             raise ValueError("design.symmetry is required in symmetry mode")
         if self.design.mode in {"motif", "binder", "partial", "inpainting"} and not self.input.pdb:
@@ -155,9 +155,12 @@ class RFDiffusionBackend(ToolBackend):
             report.error(
                 "Unsupported symmetry; use cN, dN, or tetrahedral as documented by RFdiffusion"
             )
-        if config.diffusion.partial_t and config.diffusion.timesteps:
-            if config.diffusion.partial_t > config.diffusion.timesteps:
-                report.error("diffusion.partial_t cannot exceed diffusion.timesteps")
+        if (
+            config.diffusion.partial_t
+            and config.diffusion.timesteps
+            and config.diffusion.partial_t > config.diffusion.timesteps
+        ):
+            report.error("diffusion.partial_t cannot exceed diffusion.timesteps")
         if structure:
             references: list[str] = []
             for contig in config.design.contigs:

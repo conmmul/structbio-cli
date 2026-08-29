@@ -111,7 +111,7 @@ class ColabFoldConfig(BaseModel):
     resources: ResourceConfig = Field(default_factory=lambda: ResourceConfig(gpus=1))
 
     @model_validator(mode="after")
-    def check_combinations(self) -> "ColabFoldConfig":
+    def check_combinations(self) -> ColabFoldConfig:
         if self.relax.num_relax > self.prediction.num_models:
             raise ValueError(
                 "relax.num_relax cannot exceed prediction.num_models: ColabFold relaxes "
