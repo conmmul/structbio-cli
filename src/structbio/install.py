@@ -73,7 +73,7 @@ RECIPES: dict[str, InstallRecipe] = {
         ),
         notes=(
             "The upstream README expects the whole setup to take under 30 minutes.",
-            "Re-run 'structbio setup --update' afterwards to record the path.",
+            "Re-run 'structbio setup' afterwards to record the path.",
         ),
     ),
     "proteinmpnn": InstallRecipe(
@@ -114,7 +114,7 @@ RECIPES: dict[str, InstallRecipe] = {
         ),
         notes=(
             "This installs colabfold_batch into "
-            "{directory}/.pixi/envs/default/bin, which 'structbio setup --update' "
+            "{directory}/.pixi/envs/default/bin, which 'structbio setup' "
             "will find.",
             "localcolabfold targets Linux and macOS; the CUDA build needs an "
             "NVIDIA GPU.",

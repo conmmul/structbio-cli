@@ -9,33 +9,53 @@ instead of relying on an activated interactive shell.
 ```bash
 git clone https://github.com/conmmul/structbio-cli.git
 cd structbio-cli
+./install.sh
+```
+
+`install.sh` creates `.venv`, installs structbio into it as an editable
+installation, and then runs `structbio setup`. It reuses an existing `.venv`
+rather than replacing it, so it is safe to re-run after pulling an update.
+
+An editable installation is useful for a shared lab checkout because pulling an
+update immediately updates the installed command.
+
+To do it by hand instead:
+
+```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 structbio setup
 ```
 
-An editable installation is useful for a shared lab checkout because pulling an
-update immediately updates the installed command.
+### The short commands, and PATH
 
-`structbio setup` also writes one short command per tool into `~/.local/bin`, so
+`structbio setup` writes one short command per tool into `~/.local/bin`, so
 `rfdiffusion monomer 150 my_monomers` works from any directory. Each of those
-files is a five-line shell wrapper around `structbio`, and it records the
-absolute path of the interpreter it was generated from, so the virtual
-environment does not have to be activated first. Re-run
-`structbio install-wrappers` after moving or rebuilding the environment. If
-`~/.local/bin` is not on your PATH yet:
+files is a small shell wrapper around `structbio`, and it records the absolute
+path of the interpreter it was generated from, so the virtual environment does
+not have to be activated first. Re-run `structbio install-wrappers` after
+moving or rebuilding the environment.
+
+Setup then puts that directory on your PATH, by appending an `export PATH=`
+line to the first shell start-up file you can write — `~/.zshrc`, then
+`~/.zprofile`, then `~/.profile` for zsh; `~/.bashrc`, `~/.bash_profile`, then
+`~/.profile` for bash. It checks writability rather than assuming: a managed
+workstation image often owns the researcher's `~/.zshrc`, and appending to it
+fails. The line is written once, so re-running setup does not duplicate it.
+
+A fresh macOS account does not have `~/.local/bin` on PATH, so this step is
+usually needed. Until a new terminal is opened, `rfdiffusion` reports
+`command not found` even though the wrapper exists; for the current terminal
+only:
 
 ```bash
 eval "$(structbio shell-init)"
 ```
 
-Add that line to `~/.zshrc` or `~/.bashrc` to make it permanent; a fresh macOS
-account does not have `~/.local/bin` on PATH, so this step is usually needed.
-`structbio setup` checks and prints the exact line if it is missing. Until it is
-done, `rfdiffusion` reports `command not found` even though the wrapper exists. To place the
-commands somewhere else, such as a shared directory for the whole lab, pass
-`--bin-dir`:
+`structbio setup --no-path` leaves shell configuration alone and prints the
+line to add yourself. To place the commands somewhere else, such as a shared
+directory for the whole lab, pass `--bin-dir`:
 
 ```bash
 structbio install-wrappers --bin-dir /usr/local/structbio/bin
@@ -61,12 +81,14 @@ structbio install-wrappers --bin-dir /usr/local/structbio/bin
 Related commands:
 
 ```bash
-structbio detect          # run the scan, change nothing
-structbio setup --update  # add newly found tools to an existing config
+structbio detect             # run the scan, change nothing
+structbio setup              # scan, configure, wire up, and check
 structbio setup --no-detect  # write the plain template instead
+structbio setup --no-check   # skip the environment checks
+structbio setup --no-path    # do not touch your shell configuration
 ```
 
-`--update` keeps a `.bak` copy of the previous file and never changes an entry
+It keeps a `.bak` copy of the previous file and never changes an entry
 you wrote yourself; it only adds tools that are missing.
 
 The result looks like this, and you can edit it freely:
@@ -113,6 +135,19 @@ RFdiffusion, ProteinMPNN, and ColabFold commands are wrapped with
 `conda run -n ENV` when a Conda manager and environment are configured. CryoZeta's verified upstream
 script manages Pixi itself; the configured environment is passed as its
 `--env` argument.
+
+### When configuration is missing
+
+A command that needs a tool no configuration reaches runs the same scan itself,
+uses what it finds, and records it in the user configuration for next time. The
+existing file is backed up as `config.yaml.bak` first, and an entry already in
+it is never changed. If the file cannot be written, the run still goes ahead
+and says so.
+
+This exists so that a researcher's first command works without a setup step. It
+records paths to software that is already installed and does nothing else: no
+environment is built, nothing is downloaded, and no licence is accepted. Set
+`STRUCTBIO_NO_AUTOCONFIG=1` to switch it off and configure everything by hand.
 
 ## 3. Use a shared lab configuration
 
@@ -182,5 +217,5 @@ What each project still needs after the clone:
 | ColabFold | `pixi install && pixi run setup` in the localcolabfold checkout | AlphaFold parameters fetched on first run |
 | CryoZeta | `pixi run setup` | From Hugging Face, non-commercial licence |
 
-Afterwards, `structbio setup --update` records anything new and
+Afterwards, `structbio setup` records anything new and
 `structbio doctor` confirms it is reachable.

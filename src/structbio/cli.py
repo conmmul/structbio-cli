@@ -1443,7 +1443,7 @@ def env_create(
         raise typer.Exit(1)
     if configured != plan.environment:
         typer.echo(
-            f"\nRecord it with: structbio setup --update, or set "
+            f"\nRecord it with: structbio setup, or set "
             f"'environment: {plan.environment}' for {tool} in the configuration."
         )
 
@@ -1513,7 +1513,7 @@ def detect_command() -> None:
             + "\nInstall one with: structbio install TOOL --into ~/software"
         )
     elif found:
-        typer.echo("\nRecord these in the configuration with: structbio setup --update")
+        typer.echo("\nRecord these in the configuration with: structbio setup")
 
 
 @app.command("install")
@@ -1588,7 +1588,7 @@ def _show_remaining_steps(recipe: install.InstallRecipe, target: Path) -> None:
         typer.echo(f"  {step}")
     for note in recipe.notes:
         typer.echo(f"\n{note.format(directory=target)}")
-    typer.echo("\nThen: structbio setup --update && structbio doctor")
+    typer.echo("\nThen: structbio setup && structbio doctor")
 
 
 @app.command("install-wrappers")

@@ -90,7 +90,7 @@ runs on the CPU if no GPU is free.
 ```bash
 structbio install proteinmpnn --into ~/software
 # run the printed conda steps, then:
-structbio setup --update
+structbio setup
 structbio doctor
 ```
 
@@ -133,7 +133,7 @@ proteinmpnn design my_backbone.pdb 4 check_mpnn --chains A --designable A:10-30
 ```bash
 structbio install rfdiffusion --into ~/software
 # run the printed steps: conda env, SE3Transformer, pip install -e ., 7 weight files
-structbio setup --update
+structbio setup
 structbio doctor
 ```
 

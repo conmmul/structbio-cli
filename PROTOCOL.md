@@ -133,8 +133,8 @@ The shortcuts are listed at the bottom of the screen. `^O` there means
 
 ## Part 2 — one-time setup
 
-Do this once per computer. It takes a few minutes plus however long the
-scientific software takes to install.
+Do this once per computer. It is one command, plus however long the scientific
+software takes to install.
 
 ### Step 1 — check you have Python
 
@@ -146,44 +146,24 @@ You need `3.10` or higher. If the number is lower, or the command is not found,
 stop and ask whoever runs the workstation. Do not try to install Python
 yourself.
 
-### Step 2 — get structbio
+### Step 2 — get structbio and install it
 
 ```bash
 cd ~
 git clone https://github.com/conmmul/structbio-cli.git
 cd structbio-cli
+./install.sh
 ```
 
-This downloads structbio into a folder called `structbio-cli` in your home
-folder, then moves you into it.
+Line by line: the first two download structbio into a folder called
+`structbio-cli` in your home folder and move you into it. The third does
+everything else, and prints what it is doing as it goes.
 
-### Step 3 — install it
+`./install.sh` is safe to run again at any time. It never deletes anything.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-```
+### Step 3 — read what it printed
 
-Line by line: the first makes a private Python area so structbio cannot disturb
-anything else; the second switches into it; the third installs structbio there.
-
-After the second line your prompt gains a `(.venv)` prefix. That is expected.
-
-### Step 4 — run setup
-
-```bash
-structbio setup
-```
-
-This does three things:
-
-1. Scans the machine for structural-biology software you already have.
-2. Writes a configuration file recording what it found.
-3. Creates short commands — `rfdiffusion`, `proteinmpnn`, `colabfold`,
-   `cryozeta`, and `structbio` — in `~/.local/bin`.
-
-You will see something like:
+The output is a short report. Read it once, from the top:
 
 ```text
 Scanning for installed software...
@@ -191,36 +171,67 @@ Scanning for installed software...
   proteinmpnn    not found
   colabfold      not found
   cryozeta       found      /home/connor/software/CryoZeta
-Wrote /home/connor/.config/structbio/config.yaml with 2 configured tool(s).
+
+Configuration     /home/connor/.config/structbio/config.yaml (2 tool(s))
+Commands          /home/connor/.local/bin  (colabfold, cryozeta, proteinmpnn, rfdiffusion, structbio)
+PATH              added to /home/connor/.zshrc
+
+Checking that each tool can run (this uses the GPU briefly)...
+  rfdiffusion    ready            PyTorch 2.4.0 (CUDA 12.1), device: NVIDIA RTX 4090
+  cryozeta       not checked      manages its own environment
+
+Open a new terminal, or run:  source /home/connor/.zshrc
+
+Ready to run: rfdiffusion
+
+Try it:
+  rfdiffusion monomer 100 my_first_designs -n 2
 ```
 
-### Step 5 — the PATH message
+Line by line:
 
-If setup ends with a large boxed message saying the commands **will not work
-yet**, it is telling you that your terminal does not yet know where to find
-them. Run the two lines it prints. They will look like:
+| Line | What it means |
+| --- | --- |
+| `Scanning...` | Which of the four programs are already on this machine. |
+| `Configuration` | The file recording where they are. You may edit it. |
+| `Commands` | The short commands it just created for you. |
+| `PATH` | The file it edited so your shell can find those commands. |
+| `Checking...` | Whether each one can actually run, proved by running code. |
+| `Ready to run` | Which ones you can use right now. |
 
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
+If a line says **`fix: something`**, that is the exact command to type. There
+is never more than one.
 
-Use exactly the lines the message shows, since it picks the right file for your
-shell. If you see `permission denied`, your shell configuration file is owned
-by someone else — send the message to whoever set up the machine.
+### Step 4 — open a new terminal
 
-Then close the terminal, open a new one, and check:
+Close this terminal window and open a new one, so it picks up the change to
+your PATH. Then check:
 
 ```bash
 structbio --version
 ```
 
-A version number means setup worked.
+A version number means setup worked. If instead you see
+`command not found: structbio`, go to
+[`command not found`](#command-not-found-rfdiffusion) in Part 7.
 
-### Step 6 — if a tool already works, say so
+If setup said it **could not** set your PATH, it printed a line beginning
+`export PATH=`. Send that message to whoever set up the machine: it means your
+shell configuration file belongs to someone else, which is not something you
+can fix from here.
 
-If RFdiffusion or ProteinMPNN already runs for you from an environment you or a
-colleague built, do not let structbio rebuild anything. Point it at what works:
+### Step 5 — only if a tool said `needs attention` or `no environment`
+
+RFdiffusion and ProteinMPNN run from a Conda environment that has to contain a
+version of PyTorch built for the graphics card in this machine. That single
+requirement causes almost all setup trouble. Setup already told you which of
+these three applies; you do not have to work it out.
+
+**`ready`.** Nothing to do. If an environment already worked, setup adopted it
+rather than building a second one beside it.
+
+If you know of an environment that works and setup did not look for it, name it
+yourself:
 
 ```bash
 structbio env adopt rfdiffusion --environment the_env_that_works
@@ -231,20 +242,23 @@ passes. Nothing is installed, changed or removed. This is always the better
 option: a working environment took somebody hours, and rebuilding it risks
 losing it.
 
-### Step 6b — build the software environments
-
-For RFdiffusion and ProteinMPNN, one command sets up everything they need —
-the environment, PyTorch, and the graphics-card libraries — choosing versions
-that match the card in this machine:
+**`needs attention`.** The environment exists but its PyTorch cannot use the
+card. Replace only PyTorch, leaving the rest of the environment alone:
 
 ```bash
-structbio env create proteinmpnn
+structbio env repair rfdiffusion
+```
+
+**`no environment`.** There is nothing to repair, so build one. This chooses
+versions to match the card in this machine:
+
+```bash
 structbio env create rfdiffusion
 ```
 
-Add `--dry-run` first to see exactly what it will install without installing
-it. It asks before starting, and it downloads several gigabytes, so it takes a
-while.
+Add `--dry-run` to either one first, to see exactly what it will install
+without installing it. `env create` asks before starting, and it downloads
+several gigabytes, so it takes a while.
 
 If an environment of that name already exists, `--force` does **not** delete
 it. It is renamed to `SE3nv-before-1` and left alone, and the command tells you
@@ -254,9 +268,9 @@ how to put it back:
 conda rename -n SE3nv-before-1 SE3nv
 ```
 
-When it finishes it does not simply claim success: it runs code on the graphics
-card to prove the environment works, and tells you if it does not. You can
-repeat that check at any time:
+Neither command simply claims success: each finishes by running code on the
+graphics card to prove the environment works, and tells you if it does not. You
+can repeat that check at any time:
 
 ```bash
 structbio env verify rfdiffusion
@@ -266,10 +280,10 @@ If it says the environment cannot be built for this machine, read what it says
 carefully and take it to whoever runs the workstation. It means no combination
 of versions exists, not that you did something wrong.
 
-ColabFold and CryoZeta manage their own environments, so they are not listed
-here; follow their own setup steps instead.
+ColabFold and CryoZeta manage their own environments, so they are reported as
+`not checked`; follow their own setup steps instead.
 
-### Step 7 — install any missing tools
+### Step 6 — install any missing tools
 
 For anything reported as `not found`:
 
@@ -288,7 +302,7 @@ licensed for academic use only, which is not a decision a tool should make for
 you. Run the printed steps yourself, then:
 
 ```bash
-structbio setup --update
+structbio setup
 structbio doctor
 ```
 
@@ -324,7 +338,7 @@ What the tool statuses mean:
 | --- | --- | --- |
 | `FOUND` | Installed and reachable. | Nothing. You can use it. |
 | `CONFIGURED, UNAVAILABLE` | structbio has been told where it is, but it is not really there. | Read the lines underneath: they say why, and the `fix:` lines say what to run. |
-| `NOT CONFIGURED` | structbio does not know about it. | `structbio detect`, then `structbio setup --update`. If still missing, `structbio install TOOL`. |
+| `NOT CONFIGURED` | structbio does not know about it. | `structbio detect`, then `structbio setup`. If still missing, `structbio install TOOL`. |
 
 `CONFIGURED, UNAVAILABLE` is the one people meet most often, usually straight
 after a first install, and it always explains itself:
@@ -449,7 +463,7 @@ with newer versions, which somebody has to test, or running on an older card.
 Reinstalling will not help, and neither will any command in this guide.
 
 Run the `fix:` line that matches. If you have the tool installed somewhere
-else, `structbio detect` will find it and `structbio setup --update` will record
+else, `structbio detect` will find it and `structbio setup` will record
 it, which is quicker than editing the configuration by hand.
 
 `GPU NOT FOUND` on a laptop is normal. On the workstation it means something is
@@ -482,8 +496,8 @@ PATHs. Point structbio at it directly:
 STRUCTBIO_NVIDIA_SMI=/usr/bin/nvidia-smi structbio gpu
 ```
 
-If that fixes it, add that line to your shell profile as in
-[Step 5](#step-5--the-path-message). If `nvidia-smi` does not work either, the
+If that fixes it, add that line to the shell start-up file `structbio setup`
+named when it set your PATH. If `nvidia-smi` does not work either, the
 problem is the driver, not structbio — that is one for whoever runs the
 workstation.
 
@@ -715,18 +729,20 @@ Nothing here breaks anything. Work through it calmly.
 
 ### `command not found: rfdiffusion`
 
-Your terminal does not know where the command is. Either:
+Your terminal does not know where the command is. Almost always this means the
+terminal was open before setup ran: close it, open a new one, and try again.
+
+If that does not help, run the installer again — it is safe to repeat, and it
+puts the commands back on your PATH:
 
 ```bash
-eval "$(structbio shell-init)"
+cd ~/structbio-cli && ./install.sh
 ```
 
-for this terminal only, or redo [Step 5](#step-5--the-path-message) to fix it
-permanently. If `structbio` itself is not found either, activate the
-installation:
+To fix only the terminal you are in right now, without changing anything:
 
 ```bash
-source ~/structbio-cli/.venv/bin/activate
+eval "$(~/structbio-cli/.venv/bin/structbio shell-init)"
 ```
 
 ### `No such command '...'`
@@ -782,8 +798,8 @@ means.
 
 If you do not intend to use that tool at all, remove its entry from
 `~/.config/structbio/config.yaml` — see
-[Step 5](#step-5--the-path-message) for how to edit a file — and it will stop
-being reported.
+[reading and editing a text file](#reading-and-editing-a-text-file) — and it
+will stop being reported.
 
 ### `Chain 'X' is absent` or `Selection includes absent residue numbers`
 

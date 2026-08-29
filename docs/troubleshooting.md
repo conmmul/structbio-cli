@@ -42,12 +42,32 @@ right environment or delete the stale clone.
 so it runs the installation it was generated from whatever environment happens
 to be active. Re-run it after moving or rebuilding an environment.
 
+## `command not found: rfdiffusion`
+
+The shell has not read the PATH line yet. Open a new terminal; that is almost
+always all it is.
+
+`structbio setup` appends the line to the first shell start-up file the
+researcher can write, and says which one. If it reported that it could not set
+PATH at all, the shell configuration is owned by someone else — a managed
+workstation image does this — and the line it printed has to be added by
+whoever administers the machine, or written to a file the researcher owns.
+
+For the current terminal only:
+
+```bash
+eval "$(~/structbio-cli/.venv/bin/structbio shell-init)"
+```
+
+Re-running `./install.sh`, or `structbio setup`, restores the wrappers and the
+PATH line and is safe to repeat.
+
 ## Installation diagnostics
 
 ### NOT CONFIGURED
 
 Try `structbio detect` first: if the tool is installed somewhere it looks,
-`structbio setup --update` will record it for you. If detection misses it,
+`structbio setup` will record it for you. If detection misses it,
 the tool is either outside the searched directories, or its directory does not
 contain the entry-point script that identifies it — a `RFdiffusion` folder
 without `scripts/run_inference.py` is deliberately ignored.
@@ -259,7 +279,7 @@ newer PyTorch.
 
 A tool that lives on a shared filesystem is only usable from a machine that
 mounts it. If a tool is installed somewhere structbio does not know about,
-`structbio detect` followed by `structbio setup --update` is quicker than
+`structbio detect` followed by `structbio setup` is quicker than
 editing the configuration.
 
 To stop a tool being reported at all, delete its entry from the user
@@ -269,7 +289,7 @@ configuration.
 
 That is what it does. Environment creation and weight downloads are left to the
 upstream project's own instructions, which the command prints. Run those, then
-`structbio setup --update` and `structbio doctor`.
+`structbio setup` and `structbio doctor`.
 
 ## Configuration errors
 

@@ -20,48 +20,87 @@ can be added over time.
 
 ## First-time setup
 
-Python 3.10 or newer is required. From a clone of this repository:
+One command. Python 3.10 or newer is the only prerequisite.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-structbio setup
+git clone https://github.com/conmmul/structbio-cli.git
+cd structbio-cli
+./install.sh
 ```
 
-`structbio setup` scans the machine for software you already have, writes
-`~/.config/structbio/config.yaml` with the paths it found, and installs one
-short shell command per tool into `~/.local/bin`:
+`install.sh` creates a private Python environment, installs structbio into it,
+and then runs `structbio setup`, which does everything else:
 
 ```text
+structbio installer
+
+Python            /usr/bin/python3.11 (3.11.9)
+Environment       ~/structbio-cli/.venv (created)
+Installing structbio...
+
 Scanning for installed software...
   rfdiffusion    found      ~/software/RFdiffusion (environment: SE3nv)
   proteinmpnn    found      ~/software/ProteinMPNN (environment: mlfold)
   colabfold      found      /opt/localcolabfold/.pixi/envs/default/bin/colabfold_batch
   cryozeta       not found
-Wrote ~/.config/structbio/config.yaml with 3 configured tool(s).
+
+Configuration     ~/.config/structbio/config.yaml (3 tool(s))
+Commands          ~/.local/bin  (colabfold, cryozeta, proteinmpnn, rfdiffusion, structbio)
+PATH              added to ~/.zshrc
+
+Checking that each tool can run (this uses the GPU briefly)...
+  rfdiffusion    ready            PyTorch 2.4.0 (CUDA 12.1), device: NVIDIA RTX 4090
+  proteinmpnn    needs attention  PyTorch 1.9.1.post3 is installed but reports no usable GPU
+                 fix: structbio env repair proteinmpnn
+
+Open a new terminal, or run:  source ~/.zshrc
+
+Ready to run: rfdiffusion
+
+Try it:
+  rfdiffusion monomer 100 my_first_designs -n 2
 ```
 
-It looks on PATH, through your conda and pixi environments, and in the usual
-software directories. `structbio detect` runs the same scan without writing
-anything, and `structbio setup --update` adds newly found tools to a
-configuration you already have, keeping a `.bak` copy and never changing an
-entry you wrote yourself.
+So `setup`:
 
-The commands it installs are tiny wrappers: `rfdiffusion ...` is exactly
-`structbio rfdiffusion ...`. Each names its interpreter outright, so it runs
-this installation whatever virtual environment happens to be active — which
-matters if more than one clone of this repository exists on the machine. The
-same wrappers are checked into [`bin/`](bin) if you would rather copy them into
-a shared directory yourself.
+- **finds the software you already have** — on PATH, through your conda and
+  pixi environments, and in the usual software directories;
+- **writes `~/.config/structbio/config.yaml`** with the paths it found, adding
+  to that file on later runs and never changing an entry you wrote yourself;
+- **installs one short command per tool** into `~/.local/bin`, so
+  `rfdiffusion ...` is exactly `structbio rfdiffusion ...`;
+- **puts those commands on your PATH**, choosing a shell start-up file you can
+  actually write — a workstation built from a managed image often owns your
+  `~/.zshrc`, and this picks `~/.zprofile` instead of failing;
+- **proves each tool can run**, by running code on the GPU, and names the one
+  command that fixes anything that cannot. An environment that already works
+  is adopted rather than rebuilt.
 
-If `setup` reports that `~/.local/bin` is not on your PATH, do what it says
-before going further, or the shell will not find the commands:
+Run `structbio setup` again whenever you install something new; it is safe to
+repeat, and `--no-check`, `--no-path` or `--no-detect` switch off any part of
+it. `structbio detect` scans without writing anything.
 
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+The commands each name their interpreter outright, so they run this
+installation whatever virtual environment happens to be active — which matters
+if more than one clone of this repository exists on the machine. Do not delete
+`.venv`, and the same wrappers are checked into [`bin/`](bin) if you would
+rather copy them into a shared directory yourself.
+
+### You do not have to run setup first
+
+If a command needs a tool that no configuration mentions, structbio looks for
+it in the same places `setup` looks, uses what it finds, and records it so the
+next run does not have to look again:
+
+```text
+$ rfdiffusion monomer 150 my_designs
+Found rfdiffusion at ~/software/RFdiffusion (environment: SE3nv)
+Recorded it in ~/.config/structbio/config.yaml
 ```
+
+Only paths to software that is already installed are written. Nothing is
+created, downloaded, or licence-accepted on your behalf. Set
+`STRUCTBIO_NO_AUTOCONFIG=1` if you would rather configure everything by hand.
 
 Then check what the workstation can reach:
 
@@ -76,16 +115,22 @@ RFdiffusion and ProteinMPNN run from a Conda environment that has to contain a
 PyTorch built for the GPU in the machine. That single requirement causes almost
 all setup trouble, so take these in order.
 
-**1. If a tool already runs for you, say so.** This is always the right first
-move, and nothing is installed or changed:
+`structbio setup` already checked each one and told you which of the following
+you need. Nothing below is guesswork; each is the answer to a specific finding.
+
+**1. `ready` — nothing to do.** If an environment already worked, setup adopted
+it rather than building a second one beside it. To record one setup did not
+look for, name it yourself:
 
 ```bash
-structbio env adopt rfdiffusion --environment SE3nv
+structbio env adopt rfdiffusion --environment the_env_that_works
 ```
 
-It runs code inside that environment and records it only if that succeeds.
+That runs code inside the environment and records it only if that succeeds.
+Nothing is installed, changed or removed. It is always the better option: a
+working environment took somebody hours.
 
-**2. If PyTorch cannot see the GPU, repair the environment in place.**
+**2. `needs attention` — repair the environment in place.**
 
 ```bash
 structbio env verify rfdiffusion
@@ -111,7 +156,7 @@ channels**, which matters: a machine may reach `conda.anaconda.org` while it
 cannot reach `download.pytorch.org`, and a pip-based install then cannot work
 at all.
 
-**3. Only if there is no environment yet, build one.**
+**3. `no environment` — build one.**
 
 ```bash
 structbio env create rfdiffusion
@@ -268,7 +313,8 @@ folder you name, and `structbio status` lists those runs.
 | `structbio env adopt TOOL` | no | runs a short check on the GPU |
 | `structbio env repair TOOL` | changes one environment | no |
 | `structbio env create TOOL` | builds an environment | no |
-| `structbio setup` / `doctor` / `tools` / `config` | configuration only | no |
+| `structbio setup` | configuration and PATH | runs each tool's check |
+| `structbio doctor` / `tools` / `config` | no | no |
 
 ## Configuration precedence
 

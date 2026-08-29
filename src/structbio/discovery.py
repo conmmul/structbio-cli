@@ -320,7 +320,7 @@ def merge_into_config(existing: str, discoveries: dict[str, Discovery]) -> str:
         added.append(name)
     if not added:
         return existing
-    header = "# Updated by 'structbio setup --update': added " + ", ".join(sorted(added)) + ".\n"
+    header = "# Updated by 'structbio setup': added " + ", ".join(sorted(added)) + ".\n"
     return header + yaml.safe_dump(data, sort_keys=False)
 
 
