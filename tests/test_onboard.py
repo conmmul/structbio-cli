@@ -96,10 +96,26 @@ def test_recording_an_environment_keeps_a_backup(tmp_path: Path) -> None:
     assert onboard.record_environment("proteinmpnn", "mlfold", config_path) is None
 
 
-def test_review_only_checks_configured_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_skips_software_this_machine_does_not_have(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The package defaults name every tool; only installed ones are checked."""
+
     monkeypatch.setattr(provision, "tool_interpreter", lambda *a: Path("/env/bin/python"))
     monkeypatch.setattr(provision, "verify", lambda *a, **k: _working())
-    settings = StructbioSettings(tools={"rfdiffusion": ToolInstallation(environment="SE3nv")})
+    checkout = tmp_path / "RFdiffusion" / "scripts"
+    checkout.mkdir(parents=True)
+    (checkout / "run_inference.py").touch()
+    settings = StructbioSettings(
+        tools={
+            "rfdiffusion": ToolInstallation(
+                path=tmp_path / "RFdiffusion",
+                executable="scripts/run_inference.py",
+                environment="SE3nv",
+            ),
+            "proteinmpnn": ToolInstallation(executable="protein_mpnn_run.py"),
+        }
+    )
 
     statuses = onboard.review(settings)
     assert [status.tool for status in statuses] == ["rfdiffusion"]

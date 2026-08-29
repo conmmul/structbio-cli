@@ -1056,11 +1056,10 @@ def _report_path(result: wrappers.PathResult) -> None:
 def _check_environments() -> list[onboard.ToolStatus]:
     """Prove each configured tool can actually run, and adopt what already works."""
 
-    settings = load_settings()
-    if not settings.tools:
+    statuses = onboard.review(load_settings())
+    if not statuses:
         return []
     typer.echo("\nChecking that each tool can run (this uses the GPU briefly)...")
-    statuses = onboard.review(settings)
     for status in statuses:
         typer.echo(f"  {status.tool:<14} {status.state:<16} {status.detail}")
         if status.adopted and status.environment:
@@ -1105,7 +1104,7 @@ def _report_discoveries(found: dict[str, discovery.Discovery]) -> None:
         entry = found.get(signature.tool)
         state = "found" if entry else "not found"
         detail = entry.describe() if entry else ""
-        typer.echo(f"  {signature.tool:<14} {state:<10} {detail}")
+        typer.echo(f"  {signature.tool:<14} {state:<10} {detail}".rstrip())
 
 
 def _update_config(config_path: Path, found: dict[str, discovery.Discovery]) -> None:

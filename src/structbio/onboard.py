@@ -111,13 +111,20 @@ def check(tool: str, installation: ToolInstallation) -> ToolStatus:
 
 
 def review(settings: StructbioSettings) -> list[ToolStatus]:
-    """Check every configured tool, in the order the backends are registered."""
+    """Check the tools that are actually installed here, in registration order.
 
-    return [
-        check(tool, installation)
-        for tool, installation in ((name, settings.tools.get(name)) for name in get_backends())
-        if installation is not None
-    ]
+    Configuration alone is not enough: the package defaults name every tool, so
+    checking on that basis would report environment trouble for software this
+    machine has never had.
+    """
+
+    statuses: list[ToolStatus] = []
+    for name, backend in get_backends().items():
+        installation = settings.tools.get(name)
+        if installation is None or not backend.check_environment(installation).configured:
+            continue
+        statuses.append(check(name, installation))
+    return statuses
 
 
 def record_environment(tool: str, name: str, config_path: Path | None = None) -> Path | None:
