@@ -1,8 +1,12 @@
 # Verification before sharing with the lab
 
-Everything in this repository has been tested against stand-in programs and
-against the upstream projects' published interfaces. **Nothing has yet been run
-against a real installation on a real GPU.** This checklist closes that gap.
+Most of this repository has been tested against stand-in programs and against
+the upstream projects' published interfaces. One path is now proven on real
+hardware: on 2026-08-29, `env repair` produced a working CUDA PyTorch for
+RFdiffusion on a workstation with two RTX 4090s, confirmed by `env verify`
+computing on the card. **Everything else — the wrapped commands themselves, and
+every other tool — is still unproven against a real installation.** This
+checklist closes that gap.
 
 Work through it in order: each stage costs more time than the one before, and a
 failure early makes the later stages pointless. Record the result of each stage
