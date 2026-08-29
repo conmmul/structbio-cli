@@ -215,6 +215,25 @@ def build_targets(config: CryoZetaConfig) -> list[dict[str, Any]]:
     ]
 
 
+def target_chains(config: "CryoZetaConfig") -> int | None:
+    """Total chain copies the target list describes."""
+
+    backend = CryoZetaBackend()
+    try:
+        targets = backend.targets(config)
+    except (StructureValidationError, OSError, ValueError):
+        return None
+    total = 0
+    for target in targets:
+        for entry in target.get("sequences", []):
+            if not isinstance(entry, dict):
+                continue
+            for value in entry.values():
+                if isinstance(value, dict):
+                    total += int(value.get("count", 1) or 1)
+    return total or None
+
+
 def target_residues(targets: list[dict[str, Any]]) -> int:
     """Total modelled residues across every chain copy of every target."""
 

@@ -284,6 +284,23 @@ structbio env verify cryozeta
 
 ## Outputs and limitations
 
+After a run, structbio lists every model file it finds and the chains in each,
+against the number of chains the request described:
+
+```text
+Model files (2):
+  combined/final_model.pdb        2 chains (A:40, B:40)
+  detection/detected_atoms.pdb   16 chains (A:3, B:3, C:3, ...)
+
+Chains requested: 2
+```
+
+**Read that before judging a prediction.** In `combined` mode CryoZeta writes
+detection output and intermediates alongside the final model, and the detection
+output is exactly what a broken model looks like: many short fragments in many
+chains. It is not the answer; it is the raw atom detection the answer is built
+from. The file whose chain count matches the request is the one to open.
+
 The upstream pipeline writes into the output folder a quick command names, or
 below `EXPERIMENT/outputs/` for a YAML run. In combined mode, the important
 upstream directories normally include detection output, standard and

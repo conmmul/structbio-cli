@@ -50,6 +50,7 @@ from structbio.slurm import generate_slurm_script
 from structbio.tools import get_backend, get_backends
 from structbio.tools.base import BackendContext, CommandPlan, ToolBackend, ValidationReport
 from structbio.tools.proteinmpnn import ProteinMPNNBackend, ProteinMPNNConfig
+from structbio.validation import StructureValidationError, parse_pdb
 
 
 app = typer.Typer(
@@ -136,6 +137,61 @@ def _backend_for(
     return loaded, backend, config
 
 
+MODEL_SUFFIXES = (".pdb", ".cif", ".mmcif", ".ent")
+
+
+def _chain_summary(path: Path) -> str | None:
+    """Chains and residue counts in a model file, or None if unreadable."""
+
+    if path.suffix.lower() not in (".pdb", ".ent"):
+        return None
+    try:
+        structure = parse_pdb(path)
+    except StructureValidationError:
+        return None
+    chains = sorted(structure.chains)
+    shown = ", ".join(f"{name}:{len(structure.for_chain(name))}" for name in chains[:10])
+    more = "" if len(chains) <= 10 else f", +{len(chains) - 10} more"
+    return f"{len(chains)} chains ({shown}{more})"
+
+
+def _report_outputs(output_dir: Path, expected_chains: int | None = None) -> None:
+    """Name the model files a run produced, and what is in them.
+
+    A tool can write detection output, intermediates and a final model into one
+    folder, and opening the wrong one looks exactly like a broken prediction.
+    """
+
+    models = sorted(
+        path
+        for path in output_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in MODEL_SUFFIXES
+    )
+    if not models:
+        return
+    typer.echo(f"\nModel files ({len(models)}):")
+    mismatched = False
+    for path in models[:15]:
+        summary = _chain_summary(path)
+        line = str(path.relative_to(output_dir))
+        typer.echo(f"  {line}" + (f"   {summary}" if summary else ""))
+        if expected_chains and summary:
+            found = int(summary.split(" ", 1)[0])
+            if found != expected_chains:
+                mismatched = True
+    if len(models) > 15:
+        typer.echo(f"  ... and {len(models) - 15} more")
+    if expected_chains:
+        typer.echo(f"\nChains requested: {expected_chains}")
+        if mismatched:
+            typer.echo(
+                "  Some files hold a different number of chains. A pipeline that "
+                "writes detection output and intermediates alongside its final "
+                "model will do this; check which file is the final one before "
+                "judging the prediction."
+            )
+
+
 def _show_failure(display_name: str, return_code: int, paths: ExperimentPaths) -> None:
     """Put the tool's own last words next to the failure, not in a file."""
 
@@ -170,6 +226,19 @@ def _validated(
         _show_report(report)
         raise typer.Exit(2)
     return loaded, backend, config, report
+
+
+def _expected_chains(config: Any) -> int | None:
+    """How many chains the request describes, when the tool states it."""
+
+    try:
+        from structbio.tools.cryozeta import CryoZetaConfig, target_chains
+
+        if isinstance(config, CryoZetaConfig):
+            return target_chains(config)
+    except (ValueError, OSError):
+        return None
+    return None
 
 
 def _manager(loaded: LoadedConfig) -> ExperimentManager:
@@ -341,7 +410,8 @@ def _quick_run(
     if return_code:
         _show_failure(backend.display_name, return_code, paths)
         raise typer.Exit(return_code)
-    typer.echo(f"Done. Results are in {paths.outputs}")
+    _report_outputs(paths.outputs, _expected_chains(config))
+    typer.echo(f"\nDone. Results are in {paths.outputs}")
 
 
 @rfdiffusion_app.command("monomer")
@@ -745,7 +815,8 @@ def _run_command(
     if return_code:
         _show_failure(backend.display_name, return_code, paths)
         raise typer.Exit(return_code)
-    typer.echo(f"Completed. Outputs: {paths.outputs}")
+    _report_outputs(paths.outputs, _expected_chains(config))
+    typer.echo(f"\nCompleted. Outputs: {paths.outputs}")
 
 
 def _submit_command(

@@ -294,3 +294,16 @@ def test_exactly_one_input_source_is_required(tmp_path: Path) -> None:
             },
             tmp_path / "dataset.yaml",
         )
+
+
+def test_target_chains_counts_every_copy(tmp_path: Path) -> None:
+    from structbio.tools.cryozeta import target_chains
+
+    backend = CryoZetaBackend()
+    write_fasta(
+        tmp_path / "chains.fasta",
+        ">a\nMKTAYIAKQ\n>b\nMKTAYIAKQ\n>c\nGGSGGSGGS\n",
+    )
+    # Two identical chains collapse to one entry with count 2, plus one other:
+    # three chains in the model, matching the three records given.
+    assert target_chains(_built(tmp_path, backend)) == 3

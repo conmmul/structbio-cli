@@ -783,3 +783,37 @@ def test_a_failed_run_shows_the_tools_own_error(
     status = runner.invoke(app, ["status", "out"])
     assert status.exit_code == 0, status.output
     assert "CUDA out of memory" in status.output
+
+
+def test_a_run_reports_which_model_files_it_produced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Detection output beside a final model looks like a broken prediction."""
+
+    checkout = tmp_path / "RFdiffusion" / "scripts"
+    checkout.mkdir(parents=True)
+    (checkout / "run_inference.py").write_text(
+        "import sys, pathlib\n"
+        "prefix = [a.split('=', 1)[1] for a in sys.argv[1:]\n"
+        "          if a.startswith('inference.output_prefix=')][0]\n"
+        "atom = 'ATOM  {:5d}  CA  ALA {}{:4d}      11.104  13.207   9.180  1.00 20.00           C'\n"
+        "pathlib.Path(prefix + '_0.pdb').write_text(\n"
+        "    '\\n'.join(atom.format(i, 'A', i) for i in range(1, 6)) + '\\n')\n"
+    )
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  rfdiffusion:\n"
+        f"    path: {tmp_path / 'RFdiffusion'}\n"
+        "    executable: scripts/run_inference.py\n"
+        "    manager: none\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["rfdiffusion", "monomer", "5", "out", "--quiet"])
+    assert result.exit_code == 0, result.output
+    assert "Model files (1)" in result.output
+    assert "out_0.pdb" in result.output
+    assert "1 chains (A:5)" in result.output
