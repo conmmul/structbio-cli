@@ -490,3 +490,43 @@ def test_proteinmpnn_repair_does_not_touch_dgl(monkeypatch: pytest.MonkeyPatch) 
     # channel appears in the channel list, so check the package spec instead.
     assert "dgl=" not in rendered
     assert len(plan.steps) == 1
+
+
+def test_a_pixi_managed_tool_is_verified_through_its_own_interpreter(
+    tmp_path: Path,
+) -> None:
+    from structbio.config import ToolInstallation
+
+    checkout = tmp_path / "CryoZeta"
+    interpreter = checkout / ".pixi" / "envs" / "default" / "bin" / "python"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.touch()
+    installation = ToolInstallation(path=checkout, manager="pixi", environment="default")
+    assert provision.tool_interpreter(installation, "default") == interpreter
+
+    # A checkout whose pixi environment was never built has no interpreter.
+    other = ToolInstallation(path=tmp_path / "absent", manager="pixi", environment="default")
+    assert provision.tool_interpreter(other, "default") is None
+
+
+def test_the_cryozeta_probe_asks_for_teaser(tmp_path: Path) -> None:
+    source = provision.probe_source("cryozeta")
+    assert "teaserpp_python" in source
+    compile(source, "<probe>", "exec")
+
+
+def test_a_missing_teaser_names_the_build_step() -> None:
+    """CryoZeta's build-teaser task is conditional and can be skipped silently."""
+
+    result = provision.parse_probe(
+        'STRUCTBIO_PROBE {"torch": "2.5.1", "torch_cuda": "12.6", '
+        '"cuda_available": true, "device": "NVIDIA GeForce RTX 4090", '
+        '"gpu_allocation": true, "teaserpp_python": false, '
+        '"teaserpp_python_error": "No module named teaserpp_python", '
+        '"cryozeta": true}'
+    )
+    failures = result.failures()
+    assert any("pixi run build-teaser" in failure for failure in failures)
+    assert any("part-finished" in failure for failure in failures)
+    # The rest of the environment is healthy and must not be blamed.
+    assert not any("no usable GPU" in failure for failure in failures)

@@ -226,6 +226,45 @@ see [the optional cluster guide](cluster.md).
 `input.json` and `input.map` are mutually exclusive, and a configuration that
 sets neither is rejected before anything runs.
 
+## Checking the installation before a run
+
+```bash
+structbio env verify cryozeta
+```
+
+This runs code inside CryoZeta's own pixi environment and imports the modules
+it needs, so an incomplete installation is found in seconds rather than after
+the detection stage.
+
+The one worth knowing about is TEASER++:
+
+```text
+FAILED: teaserpp_python could not be imported, so CryoZeta cannot load its
+        fitting module.
+```
+
+`pixi run setup` builds TEASER++ through a `build-teaser` task whose command is
+conditional on `externals/TEASER-plusplus/build/libteaser.so` existing. A build
+that stopped part-way leaves that file behind, so a later `pixi run setup`
+skips the step and reports success while the Python bindings are still absent.
+Every mode fails at import, because `cryozeta/model/modules/fitting.py` imports
+it unconditionally.
+
+```bash
+cd ~/software/CryoZeta
+pixi run build-teaser
+```
+
+If that reports nothing to do, force it:
+
+```bash
+rm -rf externals/TEASER-plusplus/build
+pixi run build-teaser
+```
+
+TEASER++ is compiled from source, so it needs CMake and a C++ toolchain; a
+failure there is usually one of those missing.
+
 ## Outputs and limitations
 
 The upstream pipeline writes into the output folder a quick command names, or

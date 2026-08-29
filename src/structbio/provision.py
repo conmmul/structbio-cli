@@ -103,12 +103,20 @@ class ProbeResult:
                 + str(values.get("gpu_error", "unknown"))
                 + ". This is the signature of a build with no kernels for this card"
             )
-        for module in ("dgl", "se3_transformer", "hydra", "numpy"):
+        for module in ("dgl", "se3_transformer", "hydra", "numpy", "teaserpp_python", "cryozeta"):
             if module in values and values[module] is False:
-                problems.append(
-                    f"{module} could not be imported: "
-                    + str(values.get(f"{module}_error", "unknown"))
-                )
+                detail = str(values.get(f"{module}_error", "unknown"))
+                if module == "teaserpp_python":
+                    problems.append(
+                        "teaserpp_python could not be imported, so CryoZeta cannot "
+                        "load its fitting module. TEASER++ was not built into this "
+                        "environment: run 'pixi run build-teaser' in the CryoZeta "
+                        "checkout. If that reports nothing to do, the build is "
+                        "part-finished -- remove externals/TEASER-plusplus/build "
+                        "and run it again"
+                    )
+                    continue
+                problems.append(f"{module} could not be imported: {detail}")
         return problems
 
     def summary(self) -> str:
@@ -155,6 +163,11 @@ print("STRUCTBIO_PROBE " + json.dumps(result))
 PROBE_MODULES = {
     "rfdiffusion": ("dgl", "se3_transformer", "hydra"),
     "proteinmpnn": ("numpy",),
+    # teaserpp_python is built by CryoZeta's own `pixi run build-teaser`, whose
+    # command is conditional on libteaser.so existing. A part-finished build
+    # leaves that file behind, so setup skips the step and reports success
+    # while the Python bindings are still absent.
+    "cryozeta": ("teaserpp_python", "cryozeta"),
 }
 
 
@@ -183,13 +196,52 @@ def parse_probe(output: str) -> ProbeResult:
     return ProbeResult(ok=False, error="the environment produced no usable answer")
 
 
-def verify(tool: str, environment: str, timeout: float = 300.0) -> ProbeResult:
-    """Run the probe inside a conda environment and report what it found."""
+def pixi_python(installation: ToolInstallation, environment_name: str) -> Path | None:
+    """The interpreter inside a pixi-managed checkout, such as CryoZeta's."""
 
+    if installation.path is None:
+        return None
+    candidate = (
+        installation.path.expanduser()
+        / ".pixi"
+        / "envs"
+        / (environment_name or "default")
+        / "bin"
+        / "python"
+    )
+    return candidate if candidate.exists() else None
+
+
+def tool_interpreter(
+    installation: ToolInstallation, environment_name: str
+) -> Path | None:
+    """The Python that runs a tool, whichever manager built its environment."""
+
+    if installation.manager == "pixi":
+        return pixi_python(installation, environment_name)
+    return environment_python(environment_name)
+
+
+def verify(
+    tool: str,
+    environment: str,
+    timeout: float = 600.0,
+    *,
+    interpreter: Path | None = None,
+) -> ProbeResult:
+    """Run the probe inside an environment and report what it found."""
+
+    argv = (
+        [str(interpreter), "-c", probe_source(tool)]
+        if interpreter is not None
+        else [
+            "conda", "run", "--no-capture-output", "-n", environment,
+            "python", "-c", probe_source(tool),
+        ]
+    )
     try:
         completed = subprocess.run(
-            ["conda", "run", "--no-capture-output", "-n", environment, "python", "-c",
-             probe_source(tool)],
+            argv,
             capture_output=True,
             text=True,
             timeout=timeout,

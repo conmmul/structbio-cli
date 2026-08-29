@@ -983,7 +983,9 @@ def _report_probe(tool: str, name: str, result: provision.ProbeResult) -> bool:
 
 @env_app.command("verify")
 def env_verify(
-    tool: str = typer.Argument(..., help="rfdiffusion or proteinmpnn"),
+    tool: str = typer.Argument(
+        ..., help="rfdiffusion, proteinmpnn or cryozeta"
+    ),
 ) -> None:
     """Run code in the tool's environment to prove it actually works.
 
@@ -993,19 +995,33 @@ def env_verify(
     """
 
     installation, name = _installation_for(tool)
-    if not name:
-        _abort(f"No conda environment is configured for {tool}")
-    if not provision.environment_exists(name):
-        _abort(f"The conda environment {name!r} does not exist; run 'structbio env create {tool}'")
-    typer.echo(f"Checking {name}...")
-    facts = provision.environment_facts(name)
-    if facts:
-        typer.echo(
-            f"  Python {facts.get('python', '?')} ({facts.get('tag', '?')}) "
-            f"on {facts.get('platform', '?')}"
+    interpreter = provision.tool_interpreter(installation, name)
+    if interpreter is None:
+        if installation.manager == "pixi":
+            _abort(
+                f"No pixi environment for {tool} at "
+                f"{installation.path}/.pixi/envs/{name or 'default'}; run "
+                "'pixi run setup' in that checkout"
+            )
+        if not name:
+            _abort(f"No conda environment is configured for {tool}")
+        _abort(
+            f"The conda environment {name!r} does not exist; "
+            f"run 'structbio env create {tool}'"
         )
-    if not _report_probe(tool, name, provision.verify(tool, name)):
-        typer.echo(f"\nRebuild it with: structbio env create {tool} --force")
+    typer.echo(f"Checking {name or 'the environment'}...")
+    typer.echo(f"  interpreter {interpreter}")
+    if not _report_probe(
+        tool, name or str(interpreter), provision.verify(tool, name, interpreter=interpreter)
+    ):
+        if installation.manager == "pixi":
+            # structbio does not build these; the project's own task does.
+            typer.echo(
+                f"\nThis environment is managed by pixi. Repair it in the checkout:"
+                f"\n  cd {installation.path}\n  pixi run setup"
+            )
+        else:
+            typer.echo(f"\nRepair it with: structbio env repair {tool}")
         raise typer.Exit(1)
 
 
