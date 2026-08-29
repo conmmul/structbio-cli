@@ -7,9 +7,11 @@ same for structbio: `rfdiffusion monomer 150 my_designs` is nothing more than
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from structbio.tools import get_backends
@@ -123,3 +125,102 @@ def _read(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return ""
+
+
+# ---------------------------------------------------------------------------
+# Making the commands findable
+# ---------------------------------------------------------------------------
+
+PATH_MARKER = "# Added by structbio setup: the short tool commands live here."
+
+
+@dataclass(frozen=True)
+class PathResult:
+    """What was needed, and done, to put the tool commands on PATH."""
+
+    state: str
+    bin_dir: Path
+    line: str
+    profile: Path | None = None
+
+    @property
+    def ready(self) -> bool:
+        """True when this shell can already find the commands."""
+
+        return self.state == "on PATH"
+
+    @property
+    def needs_reload(self) -> bool:
+        """True when a profile is correct but this shell has not read it yet."""
+
+        return self.state in ("added", "already in profile")
+
+
+def path_line(bin_dir: Path) -> str:
+    return f'export PATH="{bin_dir.expanduser().resolve()}:$PATH"'
+
+
+def on_path(bin_dir: Path) -> bool:
+    resolved = str(bin_dir.expanduser().resolve())
+    entries = os.environ.get("PATH", "").split(os.pathsep)
+    return any(entry and str(Path(entry).expanduser()) == resolved for entry in entries)
+
+
+def profile_candidates(shell: str | None = None) -> list[Path]:
+    """Shell start-up files to try, most specific first.
+
+    Both login and interactive files are listed, because which one a terminal
+    reads depends on how it was opened. Writing to the first writable one is
+    enough for a new terminal in every arrangement seen in the lab.
+    """
+
+    name = Path(shell or os.environ.get("SHELL", "")).name
+    home = Path.home()
+    if name == "zsh":
+        return [home / ".zshrc", home / ".zprofile", home / ".profile"]
+    if name == "fish":
+        return [home / ".config/fish/config.fish"]
+    return [home / ".bashrc", home / ".bash_profile", home / ".profile"]
+
+
+def _writable(path: Path) -> bool:
+    """True when this user can append to that file, or create it."""
+
+    if path.exists():
+        return os.access(path, os.W_OK)
+    return path.parent.exists() and os.access(path.parent, os.W_OK)
+
+
+def writable_profile(shell: str | None = None) -> Path | None:
+    """The first start-up file this user may edit, if there is one.
+
+    A workstation shared through a managed image often has a root-owned
+    `~/.zshrc`, which is why the first candidate is not simply assumed.
+    """
+
+    for candidate in profile_candidates(shell):
+        if _writable(candidate):
+            return candidate
+    return None
+
+
+def ensure_on_path(bin_dir: Path, *, shell: str | None = None) -> PathResult:
+    """Put the wrapper directory on PATH for future shells, idempotently."""
+
+    bin_dir = bin_dir.expanduser()
+    line = path_line(bin_dir)
+    if on_path(bin_dir):
+        return PathResult("on PATH", bin_dir, line)
+    profile = writable_profile(shell)
+    if profile is None:
+        return PathResult("no writable profile", bin_dir, line)
+    existing = _read(profile) if profile.exists() else ""
+    if line in existing:
+        return PathResult("already in profile", bin_dir, line, profile)
+    block = f"\n{PATH_MARKER}\n{line}\n"
+    try:
+        with profile.open("a", encoding="utf-8") as handle:
+            handle.write(block if existing.endswith("\n") or not existing else f"\n{block}")
+    except OSError:
+        return PathResult("no writable profile", bin_dir, line)
+    return PathResult("added", bin_dir, line, profile)

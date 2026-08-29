@@ -238,25 +238,58 @@ def test_version_flag_reports_the_package_version() -> None:
     assert result.output.strip() == __version__
 
 
-def test_setup_says_loudly_when_the_commands_are_not_on_path(
+def test_setup_puts_the_commands_on_path_by_itself(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(tmp_path / "config.yaml"))
-    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
     monkeypatch.setenv("SHELL", "/bin/zsh")
+    profile = Path.home() / ".zshrc"
+    profile.write_text("# existing configuration\n")
     bin_dir = tmp_path / "bin"
 
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
-    missing = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
-    assert missing.exit_code == 0, missing.output
-    assert "will NOT work yet" in missing.output
-    assert f'export PATH="{bin_dir.resolve()}:$PATH"' in missing.output
-    assert "~/.zshrc" in missing.output
+    added = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
+    assert added.exit_code == 0, added.output
+    assert f'export PATH="{bin_dir.resolve()}:$PATH"' in profile.read_text()
+    assert "# existing configuration" in profile.read_text()
+    assert str(profile) in added.output
+
+    # Running it again must not add the line a second time.
+    again = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
+    assert again.exit_code == 0, again.output
+    assert profile.read_text().count("export PATH=") == 1
 
     monkeypatch.setenv("PATH", f"{bin_dir.resolve()}:/usr/bin:/bin")
     present = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
-    assert present.exit_code == 0, present.output
-    assert "will NOT work yet" not in present.output
+    assert "PATH              already includes" in present.output
+
+
+def test_setup_leaves_an_unwritable_shell_profile_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A managed workstation can own the researcher's shell files."""
+
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr("structbio.wrappers._writable", lambda path: False)
+    bin_dir = tmp_path / "bin"
+
+    result = runner.invoke(app, ["setup", "--bin-dir", str(bin_dir)])
+    assert result.exit_code == 0, result.output
+    assert "could not be set" in result.output
+    assert f'export PATH="{bin_dir.resolve()}:$PATH"' in result.output
+
+
+def test_setup_can_be_told_not_to_touch_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    profile = Path.home() / ".zshrc"
+    profile.write_text("# existing configuration\n")
+
+    result = runner.invoke(app, ["setup", "--no-path", "--bin-dir", str(tmp_path / "bin")])
+    assert result.exit_code == 0, result.output
+    assert profile.read_text() == "# existing configuration\n"
 
 
 def test_gpu_auto_picks_the_card_with_most_free_memory(
@@ -336,7 +369,7 @@ def test_setup_writes_a_configuration_from_what_it_finds(
     assert "rfdiffusion" not in written["tools"]
 
 
-def test_setup_update_merges_and_keeps_a_backup(
+def test_setup_merges_new_tools_and_keeps_a_backup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from structbio import discovery
@@ -350,11 +383,7 @@ def test_setup_update_merges_and_keeps_a_backup(
     monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(config_path))
     monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
 
-    unchanged = runner.invoke(app, ["setup", "--bin-dir", str(tmp_path / "bin")])
-    assert "already exists" in unchanged.output
-    assert config_path.read_text().startswith("tools:")
-
-    updated = runner.invoke(app, ["setup", "--update", "--bin-dir", str(tmp_path / "bin")])
+    updated = runner.invoke(app, ["setup", "--bin-dir", str(tmp_path / "bin")])
     assert updated.exit_code == 0, updated.output
     merged = yaml.safe_load(config_path.read_text())
     assert merged["tools"]["rfdiffusion"]["path"] == "/my/RFdiffusion"
@@ -817,3 +846,31 @@ def test_a_run_reports_which_model_files_it_produced(
     assert "Model files (1)" in result.output
     assert "out_0.pdb" in result.output
     assert "1 chains (A:5)" in result.output
+
+
+def test_a_quick_run_finds_an_unconfigured_tool_by_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No configuration, no setup: the first command still has to work."""
+
+    from structbio import autoconfig, discovery
+
+    software = tmp_path / "software"
+    (software / "RFdiffusion" / "scripts").mkdir(parents=True)
+    (software / "RFdiffusion" / "scripts" / "run_inference.py").touch()
+    monkeypatch.setattr(discovery, "conda_environments", dict)
+    scan = discovery.discover
+    monkeypatch.setattr(
+        discovery,
+        "discover",
+        lambda sigs=None, **_: scan(sigs or discovery.SIGNATURES, roots=(str(software),)),
+    )
+    monkeypatch.delenv(autoconfig.DISABLE_VARIABLE, raising=False)
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(config_path))
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["rfdiffusion", "monomer", "80", "designs", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "Found rfdiffusion at" in result.output
+    assert str(software / "RFdiffusion") in config_path.read_text()

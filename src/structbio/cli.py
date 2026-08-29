@@ -16,9 +16,11 @@ from pydantic import ValidationError
 
 from structbio import (
     __version__,
+    autoconfig,
     discovery,
     environment,
     install,
+    onboard,
     provision,
     quick,
     wrappers,
@@ -249,13 +251,36 @@ def _manager(loaded: LoadedConfig) -> ExperimentManager:
 
 
 def _installation(loaded: LoadedConfig, backend: ToolBackend) -> Any:
+    """Where this tool lives, looking for it on disk if nothing says.
+
+    A researcher who has just installed structbio has no configuration yet.
+    Rather than sending them to 'structbio setup' first, the same scan setup
+    would run happens here, and what it finds is recorded for next time.
+    """
+
     installation = loaded.settings.tools.get(backend.name)
-    if installation is None:
-        _abort(
-            f"No installation is configured for {backend.display_name}. "
-            f"Run 'structbio setup' and edit {user_config_path()}"
-        )
-    return installation
+    if installation is not None and backend.check_environment(installation).configured:
+        return installation
+    adoption = autoconfig.adopt(backend.name)
+    if adoption is not None:
+        found = adoption.installation
+        if installation is not None and installation.environment and not found.environment:
+            found.environment = installation.environment
+        typer.echo(adoption.describe())
+        if adoption.config_path:
+            typer.echo(f"Recorded it in {adoption.config_path}")
+        elif adoption.note:
+            typer.echo(adoption.note)
+        loaded.settings.tools[backend.name] = found
+        return found
+    if installation is not None:
+        # Let the environment check explain precisely what is wrong with it.
+        return installation
+    _abort(
+        f"{backend.display_name} is not installed anywhere structbio looked. "
+        f"Install it with 'structbio install {backend.name} --into ~/software', "
+        f"or name an existing checkout in {user_config_path()}"
+    )
 
 
 def _context(
@@ -938,49 +963,141 @@ def setup(
     bin_dir: Path = typer.Option(
         wrappers.DEFAULT_WRAPPER_DIR, "--bin-dir", help="Where tool commands are written"
     ),
-    update: bool = typer.Option(
-        False, "--update", help="Add newly found tools to an existing configuration"
-    ),
     detect: bool = typer.Option(True, "--detect/--no-detect", help="Scan for installed software"),
+    check: bool = typer.Option(
+        True, "--check/--no-check", help="Run each tool's environment check"
+    ),
+    fix_path: bool = typer.Option(
+        True, "--path/--no-path", help="Add the tool commands to PATH in your shell profile"
+    ),
     wrappers_only: bool = typer.Option(
         False, "--wrappers-only", help="Do not touch the configuration file"
     ),
 ) -> None:
-    """Find the installed software, write the configuration, add the tool commands."""
+    """Set this workstation up completely: find the software, wire it up, check it.
+
+    Safe to run again at any time. It adds what is missing and never overwrites
+    an entry you wrote yourself, so it is also the right command after
+    installing a new tool.
+    """
 
     config_path = user_config_path()
+    found: dict[str, discovery.Discovery] = {}
     if not wrappers_only:
-        found: dict[str, discovery.Discovery] = {}
         if detect:
             typer.echo("Scanning for installed software...")
             found = discovery.discover()
             _report_discoveries(found)
             typer.echo("")
-        if not config_path.exists():
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(
-                discovery.render_config(found) if detect else USER_CONFIG_TEMPLATE,
-                encoding="utf-8",
-            )
-            typer.echo(f"Wrote {config_path} with {len(found)} configured tool(s).")
-            if len(found) < len(discovery.SIGNATURES):
-                typer.echo(
-                    "Install anything missing with: structbio install TOOL --into ~/software"
-                )
-        elif update and found:
-            _update_config(config_path, found)
-        else:
-            typer.echo(f"Configuration already exists: {config_path}")
-            if found:
-                typer.echo(
-                    "Run 'structbio setup --update' to add the tools found above to it."
-                )
-        typer.echo("")
+        _write_configuration(config_path, found, detect)
 
-    for path, state in wrappers.install_wrappers(bin_dir):
-        typer.echo(f"{state:<32} {path}")
-    typer.echo("\nThen check the installation with: structbio doctor")
-    _warn_about_path(bin_dir)
+    typer.echo("")
+    _install_commands(bin_dir)
+    path_result = (
+        wrappers.ensure_on_path(bin_dir) if fix_path else wrappers.PathResult(
+            "on PATH" if wrappers.on_path(bin_dir) else "not on PATH",
+            bin_dir.expanduser(),
+            wrappers.path_line(bin_dir),
+        )
+    )
+    _report_path(path_result)
+
+    statuses: list[onboard.ToolStatus] = []
+    if check and not wrappers_only:
+        statuses = _check_environments()
+    _report_next_steps(statuses, path_result, found)
+
+
+def _write_configuration(
+    config_path: Path, found: dict[str, discovery.Discovery], detect: bool
+) -> None:
+    """Create the configuration, or add newly found tools to the existing one."""
+
+    if not config_path.exists():
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            discovery.render_config(found) if detect else USER_CONFIG_TEMPLATE,
+            encoding="utf-8",
+        )
+        typer.echo(f"Configuration     {config_path} ({len(found)} tool(s))")
+        return
+    if found:
+        _update_config(config_path, found)
+    else:
+        typer.echo(f"Configuration     {config_path}")
+
+
+def _install_commands(bin_dir: Path) -> None:
+    results = wrappers.install_wrappers(bin_dir)
+    skipped = [(path, state) for path, state in results if state.startswith("skipped")]
+    names = ", ".join(sorted(path.name for path, _ in results))
+    typer.echo(f"Commands          {bin_dir.expanduser()}  ({names})")
+    for path, state in skipped:
+        typer.echo(f"                  {state}: {path}")
+
+
+def _report_path(result: wrappers.PathResult) -> None:
+    if result.ready:
+        typer.echo(f"PATH              already includes {result.bin_dir}")
+        return
+    if result.state == "added":
+        typer.echo(f"PATH              added to {result.profile}")
+        return
+    if result.state == "already in profile":
+        typer.echo(f"PATH              set in {result.profile}, but this shell has not read it")
+        return
+    typer.echo(
+        f"PATH              could not be set: no shell start-up file you can write.\n"
+        f"                  Add this line to your shell configuration yourself:\n"
+        f"                    {result.line}"
+    )
+
+
+def _check_environments() -> list[onboard.ToolStatus]:
+    """Prove each configured tool can actually run, and adopt what already works."""
+
+    settings = load_settings()
+    if not settings.tools:
+        return []
+    typer.echo("\nChecking that each tool can run (this uses the GPU briefly)...")
+    statuses = onboard.review(settings)
+    for status in statuses:
+        typer.echo(f"  {status.tool:<14} {status.state:<16} {status.detail}")
+        if status.adopted and status.environment:
+            written = onboard.record_environment(status.tool, status.environment)
+            if written:
+                typer.echo(f"  {'':<14} recorded environment {status.environment} in {written}")
+        if status.fix:
+            typer.echo(f"  {'':<14} fix: {status.fix}")
+    return statuses
+
+
+def _report_next_steps(
+    statuses: list[onboard.ToolStatus],
+    path_result: wrappers.PathResult,
+    found: dict[str, discovery.Discovery],
+) -> None:
+    typer.echo("")
+    if path_result.needs_reload:
+        typer.echo(f"Open a new terminal, or run:  source {path_result.profile}\n")
+    ready = [status.tool for status in statuses if status.ready]
+    if ready:
+        typer.echo("Ready to run: " + ", ".join(ready))
+        typer.echo(f"\nTry it:\n  {EXAMPLE_RUNS.get(ready[0], EXAMPLE_RUNS['rfdiffusion'])}")
+        return
+    if not found:
+        typer.echo("No wrapped software was found on this machine. Install one with:")
+        typer.echo("  structbio install rfdiffusion --into ~/software")
+        return
+    typer.echo("Run 'structbio doctor' for the full picture of what is left.")
+
+
+EXAMPLE_RUNS = {
+    "rfdiffusion": "rfdiffusion monomer 100 my_first_designs -n 2",
+    "proteinmpnn": "proteinmpnn design my_backbone.pdb 4 my_sequences",
+    "colabfold": "colabfold predict my_sequences my_folds --msa-mode single_sequence",
+    "cryozeta": "cryozeta predict map.mrc chains.fasta my_model --resolution 3.0 --contour 0.3",
+}
 
 
 def _report_discoveries(found: dict[str, discovery.Discovery]) -> None:
@@ -1475,24 +1592,6 @@ def _show_remaining_steps(recipe: install.InstallRecipe, target: Path) -> None:
     typer.echo("\nThen: structbio setup --update && structbio doctor")
 
 
-def _warn_about_path(bin_dir: Path) -> None:
-    """Say so, unmissably, when the tool commands cannot be found by name."""
-
-    resolved = bin_dir.expanduser().resolve()
-    if str(resolved) in os.environ.get("PATH", "").split(os.pathsep):
-        return
-    profile = "~/.zshrc" if os.environ.get("SHELL", "").endswith("zsh") else "~/.bashrc"
-    typer.echo(
-        f"\n{'=' * 72}\n"
-        f"The tool commands will NOT work yet: {resolved} is not on your PATH,\n"
-        f"so your shell cannot find {', '.join(wrappers.wrapper_tools())}.\n\n"
-        f"Fix it with:\n"
-        f'  echo \'export PATH="{resolved}:$PATH"\' >> {profile}\n'
-        f"  source {profile}\n"
-        f"{'=' * 72}"
-    )
-
-
 @app.command("install-wrappers")
 def install_wrappers_command(
     bin_dir: Path = typer.Option(
@@ -1506,7 +1605,7 @@ def install_wrappers_command(
 
     for path, state in wrappers.install_wrappers(bin_dir, force=force):
         typer.echo(f"{state:<32} {path}")
-    _warn_about_path(bin_dir)
+    _report_path(wrappers.ensure_on_path(bin_dir))
 
 
 @app.command("shell-init")
