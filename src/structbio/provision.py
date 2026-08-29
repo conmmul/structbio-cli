@@ -109,11 +109,18 @@ class ProbeResult:
                 if module == "teaserpp_python":
                     problems.append(
                         "teaserpp_python could not be imported, so CryoZeta cannot "
-                        "load its fitting module. TEASER++ was not built into this "
-                        "environment: run 'pixi run build-teaser' in the CryoZeta "
-                        "checkout. If that reports nothing to do, the build is "
-                        "part-finished -- remove externals/TEASER-plusplus/build "
-                        "and run it again"
+                        "load its fitting module. TEASER++ is compiled from source "
+                        "and is not published as a wheel, so it has to build "
+                        "successfully in this checkout. In the CryoZeta checkout:"
+                        "\n    pixi add cmake eigen boost-cpp cxx-compiler"
+                        "\n    pixi run build-teaser"
+                        "\n  The first line is needed whenever the build stops with "
+                        "'cmake: command not found'; it puts the compiler and "
+                        "libraries in the environment the build runs in, and edits "
+                        "pyproject.toml and pixi.lock, which git can revert."
+                        "\n  If build-teaser reports nothing to do, an earlier build "
+                        "left externals/TEASER-plusplus/build/libteaser.so behind and "
+                        "the task skips itself: remove that build directory first"
                     )
                     continue
                 problems.append(f"{module} could not be imported: {detail}")

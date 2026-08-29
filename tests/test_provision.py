@@ -527,6 +527,9 @@ def test_a_missing_teaser_names_the_build_step() -> None:
     )
     failures = result.failures()
     assert any("pixi run build-teaser" in failure for failure in failures)
-    assert any("part-finished" in failure for failure in failures)
+    # It must name the build prerequisites: without them build-teaser only
+    # fails again with 'cmake: command not found'.
+    assert any("pixi add cmake eigen boost-cpp cxx-compiler" in f for f in failures)
+    assert any("libteaser.so" in failure for failure in failures)
     # The rest of the environment is healthy and must not be blamed.
     assert not any("no usable GPU" in failure for failure in failures)

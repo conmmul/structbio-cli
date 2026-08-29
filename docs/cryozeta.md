@@ -250,20 +250,37 @@ skips the step and reports success while the Python bindings are still absent.
 Every mode fails at import, because `cryozeta/model/modules/fitting.py` imports
 it unconditionally.
 
+TEASER++ is compiled from source and is not published as a wheel, so it has to
+build successfully here. It needs CMake, a C++ compiler, Eigen and Boost. Put
+them in the environment the build runs in:
+
 ```bash
 cd ~/software/CryoZeta
+pixi add cmake eigen boost-cpp cxx-compiler
 pixi run build-teaser
 ```
 
-If that reports nothing to do, force it:
+The first line is what `cmake: command not found` is asking for. Adding the
+tools to the pixi environment is more reliable than installing them elsewhere
+and hoping the task finds them on PATH, and it keeps the compiler and the
+libraries consistent with the environment CryoZeta itself runs in. It edits
+`pyproject.toml` and `pixi.lock`, which are tracked by git, so
+`git checkout pyproject.toml pixi.lock` reverts it.
+
+If `build-teaser` reports nothing to do, an earlier attempt left
+`externals/TEASER-plusplus/build/libteaser.so` behind and the task skips
+itself. Remove that directory and run it again:
 
 ```bash
 rm -rf externals/TEASER-plusplus/build
 pixi run build-teaser
 ```
 
-TEASER++ is compiled from source, so it needs CMake and a C++ toolchain; a
-failure there is usually one of those missing.
+Then confirm:
+
+```bash
+structbio env verify cryozeta
+```
 
 ## Outputs and limitations
 
