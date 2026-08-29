@@ -91,6 +91,27 @@ The choice is deliberately conservative: a wheel built for a newer CUDA than
 the driver will not run, so a driver reporting 12.0 is given `cu118` rather
 than `cu121`.
 
+### Restoring an environment structbio replaced
+
+Versions of this tool before 2026-08-29 deleted an environment when
+`env create --force` was used. It now renames it to `NAME-before-N` instead,
+and refuses to touch one that passes its check at all. If a working
+environment was lost, rebuild it from the project's own instructions:
+
+```bash
+conda env create -f ~/software/RFdiffusion/env/SE3nv.yml
+conda activate SE3nv
+cd ~/software/RFdiffusion/env/SE3Transformer
+pip install --no-cache-dir -r requirements.txt && python setup.py install
+cd ~/software/RFdiffusion && pip install -e .
+```
+
+Then record it rather than letting structbio build another:
+
+```bash
+structbio env adopt rfdiffusion --environment SE3nv
+```
+
 ### An environment that already works
 
 Use it rather than replacing it:

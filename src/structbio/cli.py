@@ -1087,6 +1087,15 @@ def env_create(
         return
 
     exists = provision.environment_exists(plan.environment)
+    if exists:
+        working = provision.verify(tool, plan.environment)
+        if not working.failures():
+            typer.echo(
+                f"\n{plan.environment} already works: {working.summary()}\n"
+                "Nothing was built. Record it with: "
+                f"structbio env adopt {tool} --environment {plan.environment}"
+            )
+            raise typer.Exit(0)
     if exists and not force:
         typer.echo(
             f"\n{plan.environment} already exists. Check it with "

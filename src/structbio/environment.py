@@ -425,6 +425,38 @@ def torch_install_command(environment: str, build: str) -> list[str]:
     ]
 
 
+def _site_packages(prefix: Path) -> list[Path]:
+    """Where this environment's own interpreter imports from, most likely first.
+
+    Globbing lib/python3.* and taking the first match sorts python3.10 ahead of
+    python3.9, so an environment left with a stale directory answers about a
+    PyTorch it would never import. Ask the interpreter instead, and only fall
+    back to guessing when it cannot be run.
+    """
+
+    for relative in ("bin/python", "bin/python3", "python.exe"):
+        interpreter = prefix / relative
+        if not interpreter.exists():
+            continue
+        output = command_output(
+            [
+                str(interpreter),
+                "-c",
+                "import sysconfig; print(sysconfig.get_paths()['purelib'])",
+            ],
+            timeout=60.0,
+            only_on_success=True,
+        )
+        if output:
+            path = Path(output.splitlines()[-1].strip())
+            if path.is_dir():
+                return [path]
+    return [
+        candidate.parent
+        for candidate in sorted(prefix.glob("lib/python3.*/site-packages/torch"))
+    ]
+
+
 def find_torch(prefix: Path) -> TorchInstall | None:
     """Read a PyTorch installation's version file, without importing torch.
 
@@ -432,11 +464,14 @@ def find_torch(prefix: Path) -> TorchInstall | None:
     the CUDA build it was compiled for, which is everything needed here.
     """
 
-    for site in sorted(prefix.glob("lib/python3.*/site-packages/torch/version.py")):
+    for packages in _site_packages(prefix):
+        site = packages / "torch" / "version.py"
+        if not site.is_file():
+            continue
         try:
             text = site.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            continue
+            continue  # unreadable; try the next location rather than guessing
         version = re.search(r"^__version__\s*=\s*['\"]([^'\"]+)", text, re.MULTILINE)
         cuda = re.search(r"^cuda\s*(?::[^=]+)?=\s*['\"]([^'\"]+)", text, re.MULTILINE)
         if version:
@@ -494,7 +529,10 @@ def unsupported_by(cuda: str | tuple[int, int]) -> tuple[tuple[int, int], str] |
 
 
 def diagnose_torch(
-    environment: str, *, pinned: PinnedEnvironment | None = None
+    environment: str,
+    *,
+    pinned: PinnedEnvironment | None = None,
+    tool_name: str = "rfdiffusion",
 ) -> tuple[list[str], list[str], list[str]]:
     """Check a conda environment's PyTorch. Returns problems, warnings, remedies.
 
@@ -526,17 +564,18 @@ def diagnose_torch(
         blocked = unsupported_by(pinned.cuda)
         if blocked is not None:
             needed, architecture = blocked
-            problems.append(
+            # A warning, not a verdict. This reads a file rather than running
+            # anything, and an environment that works is not structbio's to
+            # declare broken; 'structbio env verify' settles it by computing on
+            # the card.
+            warnings.append(
                 f"this machine's GPU is {architecture}, which needs CUDA "
-                f"{needed[0]}.{needed[1]} or newer, but {pinned.file} pins CUDA "
-                f"{pinned.cuda}. No PyTorch install can bridge that: the pinned "
-                "version has no kernels for this card"
+                f"{needed[0]}.{needed[1]} or newer, while {pinned.file} pins CUDA "
+                f"{pinned.cuda}. If the GPU is unused or a run fails with "
+                "'no kernel image is available', that is why"
             )
             remedies.append(
-                "the pinned environment cannot drive this GPU. Build one with a "
-                "current PyTorch and a matching DGL, or run the tool on an older "
-                "card. Ask upstream before assuming the rest of the checkout "
-                "works against a newer PyTorch"
+                f"check it for certain with: structbio env verify {tool_name}"
             )
             return problems, warnings, remedies
 
@@ -633,7 +672,7 @@ def diagnose_installation(
                 )
             elif needs_torch:
                 found, degraded, fixes = diagnose_torch(
-                    installation.environment, pinned=pinned
+                    installation.environment, pinned=pinned, tool_name=tool
                 )
                 problems.extend(found)
                 warnings.extend(degraded)

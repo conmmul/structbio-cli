@@ -769,3 +769,37 @@ def test_env_adopt_records_nothing_when_the_check_fails(
     assert result.exit_code == 1
     assert "Not recorded" in result.output
     assert (tmp_path / "user.yaml").read_text() == before
+
+
+def test_env_create_will_not_replace_an_environment_that_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even with --force: a working environment is the thing being protected."""
+
+    _conda_tool(tmp_path, monkeypatch, torch=None)
+    monkeypatch.setattr("structbio.provision.environment_exists", lambda name: True)
+    monkeypatch.setattr(
+        "structbio.provision.verify",
+        lambda tool, name, **k: __import__(
+            "structbio.provision", fromlist=["x"]
+        ).ProbeResult(
+            ok=True,
+            values={
+                "torch": "1.9.1",
+                "torch_cuda": "11.1",
+                "cuda_available": True,
+                "device": "NVIDIA GeForce RTX 4090",
+                "gpu_allocation": True,
+                "numpy": True,
+            },
+        ),
+    )
+    moved: list[str] = []
+    monkeypatch.setattr(
+        "structbio.provision.move_aside", lambda name: moved.append(name) or "x"
+    )
+    result = runner.invoke(app, ["env", "create", "proteinmpnn", "--force", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "already works" in result.output
+    assert "env adopt proteinmpnn" in result.output
+    assert moved == []

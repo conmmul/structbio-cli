@@ -180,10 +180,14 @@ def test_each_architecture_maps_to_the_cuda_it_needs(capability, cuda, architect
     assert architecture in described
 
 
-def test_a_gpu_too_new_for_the_pinned_cuda_is_fatal_not_a_warning(
+def test_a_gpu_newer_than_the_pinned_cuda_warns_without_blocking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Reinstalling at the pinned version cannot produce kernels for the card."""
+    """Reading a pinned file cannot prove a working environment is broken.
+
+    This check never runs anything, so it must not stop a researcher whose
+    setup works; only `env verify`, which computes on the card, can say that.
+    """
 
     from structbio.tools.rfdiffusion import SE3NV
 
@@ -198,11 +202,9 @@ def test_a_gpu_too_new_for_the_pinned_cuda_is_fatal_not_a_warning(
     monkeypatch.setattr(environment, "gpu_capabilities", lambda: [(12, 0)])
 
     problems, warnings, remedies = environment.diagnose_torch("SE3nv", pinned=SE3NV)
-    assert any("no kernels for this card" in problem for problem in problems)
-    assert warnings == []
-    assert any("cannot drive this GPU" in remedy for remedy in remedies)
-    # It must not repeat the repair that cannot work.
-    assert not any("pytorch=1.9 cudatoolkit=11.1" in remedy for remedy in remedies)
+    assert problems == []
+    assert any("no kernel image is available" in warning for warning in warnings)
+    assert any("env verify" in remedy for remedy in remedies)
 
 
 def test_an_older_gpu_still_gets_the_ordinary_repair(
@@ -247,3 +249,32 @@ def test_an_unpinned_environment_on_a_too_new_gpu_is_told_to_upgrade(
 def test_no_gpu_information_means_no_hardware_claim(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(environment, "gpu_capabilities", list)
     assert environment.unsupported_by("11.1") is None
+
+
+def test_the_interpreters_own_site_packages_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale lib/python3.10 sorts ahead of the real python3.9 and misleads."""
+
+    import sys
+
+    prefix = tmp_path / "env"
+    real = prefix / "lib" / "python3.9" / "site-packages" / "torch"
+    stale = prefix / "lib" / "python3.10" / "site-packages" / "torch"
+    real.mkdir(parents=True)
+    stale.mkdir(parents=True)
+    (real / "version.py").write_text(CUDA_VERSION_FILE)
+    (stale / "version.py").write_text(CPU_VERSION_FILE)
+
+    # Without an interpreter to ask, the glob picks the stale 3.10 directory.
+    assert find_torch(prefix).cpu_only
+
+    # With one, the answer comes from where that interpreter really imports.
+    (prefix / "bin").mkdir()
+    interpreter = prefix / "bin" / "python"
+    interpreter.write_text(
+        "#!/bin/sh\n" f'exec {sys.executable} -c "print(\'{real.parent}\')"\n'
+    )
+    interpreter.chmod(0o755)
+    found = find_torch(prefix)
+    assert found is not None and found.cuda == "12.1"
