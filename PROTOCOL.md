@@ -355,9 +355,20 @@ The three things it distinguishes, and what each means:
 | `PyTorch ... is a CPU-only build` | A warning, not an error. It will run, but on the processor rather than the graphics card, so far more slowly. |
 | `PyTorch ... was built for CUDA X, which this driver cannot run` | The wrong version was installed for this machine's graphics driver. |
 
-A tool can also show `FOUND, DEGRADED`. That means it will run, but something
-will make it slower or worse — almost always a CPU-only PyTorch. You can go
-ahead; the warning repeats every time you run.
+A tool can also show `FOUND, WITH WARNINGS`. **The tool works.** The warning is
+about something that may make it slower — usually a PyTorch older than the
+graphics card, which still runs but spends time compiling for the card on its
+first call. Nothing is stopped, and if your runs are fine you can ignore it.
+
+To settle whether a warning matters, ask the environment itself rather than
+believing a version comparison:
+
+```bash
+structbio env verify rfdiffusion
+```
+
+That runs code on the graphics card. Its answer is the one to trust; anything
+structbio says from reading files is only a hint.
 
 ### PyTorch problems
 

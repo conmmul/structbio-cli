@@ -73,8 +73,14 @@ line. The distinctions it makes:
 | `the conda environment 'X' does not exist` | The code is present but its environment was never created; the install steps were probably stopped partway. |
 | `pixi is not installed` | Needed by CryoZeta. |
 | `PyTorch is not installed in the conda environment 'X'` | The environment exists but the tool's main dependency is absent. |
-| `PyTorch ... is a CPU-only build` | A warning, not a failure: it runs, ignoring the GPU. The tool reports `FOUND, DEGRADED`. |
-| `PyTorch ... was built for CUDA X, which this driver cannot run` | Fatal: the wheel is newer than the driver and fails at import. |
+| `PyTorch ... is a CPU-only build` | A warning: it runs, ignoring the GPU. |
+| `PyTorch ... was built for CUDA X, older than ...` | A warning. PyTorch ships PTX, which the driver compiles for a newer card on first use, so it usually runs. |
+| `PyTorch ... which this driver cannot load` | Fatal. A driver cannot load a CUDA runtime newer than itself, and PTX offers no way around it. |
+
+Only the last of these stops a run. Everything else structbio learns by reading
+files is advisory: those readings have been wrong, and a wrong refusal costs
+more than a wrong warning. `structbio env verify` is the authority, because it
+runs code on the card.
 
 ### PyTorch
 

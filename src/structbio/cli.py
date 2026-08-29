@@ -1545,7 +1545,7 @@ def doctor() -> None:
         check = backend.check_environment(installation) if installation else None
         status = "FOUND" if check and check.found else "NOT CONFIGURED"
         if check and check.found and check.warnings:
-            status = "FOUND, DEGRADED"
+            status = "FOUND, WITH WARNINGS"
         elif check and check.configured and not check.found:
             status = "CONFIGURED, UNAVAILABLE"
         typer.echo(f"{backend.display_name:<22} {status}")

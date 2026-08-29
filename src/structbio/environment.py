@@ -553,7 +553,14 @@ def diagnose_torch(
     torch = find_torch(prefix)
 
     if torch is None:
-        problems.append(f"PyTorch is not installed in the conda environment {environment!r}")
+        # A warning rather than a refusal. This reads files, and reading them
+        # has been wrong before; a tool that really has no PyTorch fails in
+        # seconds with its own clear import error, whereas a wrong refusal
+        # costs a researcher their afternoon.
+        warnings.append(
+            f"no PyTorch was found in the conda environment {environment!r}, so "
+            "the tool will probably fail to import it"
+        )
         remedies.extend(
             pinned.remedies(environment) if pinned else [f"structbio fix-env, or run: {upgrade}"]
         )
@@ -569,13 +576,14 @@ def diagnose_torch(
             # declare broken; 'structbio env verify' settles it by computing on
             # the card.
             warnings.append(
-                f"this machine's GPU is {architecture}, which needs CUDA "
-                f"{needed[0]}.{needed[1]} or newer, while {pinned.file} pins CUDA "
-                f"{pinned.cuda}. If the GPU is unused or a run fails with "
-                "'no kernel image is available', that is why"
+                f"this GPU is {architecture}, released after CUDA {pinned.cuda} "
+                f"that {pinned.file} pins, so the pinned PyTorch has no kernels "
+                "compiled for it specifically. It usually still runs, compiling "
+                "PTX for the card on first use, which makes the first call slow. "
+                f"A build for CUDA {needed[0]}.{needed[1]} or newer avoids that"
             )
             remedies.append(
-                f"check it for certain with: structbio env verify {tool_name}"
+                f"structbio env verify {tool_name} settles it by computing on the card"
             )
             return problems, warnings, remedies
 
@@ -590,21 +598,33 @@ def diagnose_torch(
             else [f"structbio fix-env --force, or run: {upgrade}"]
         )
     elif torch.cuda and driver:
-        blocked = unsupported_by(torch.cuda)
-        if blocked is not None:
-            needed, architecture = blocked
-            problems.append(
+        older = unsupported_by(torch.cuda)
+        if older is not None:
+            needed, architecture = older
+            # Not a verdict. PyTorch ships PTX alongside its compiled kernels,
+            # and the driver JIT-compiles that for a newer architecture, so an
+            # older build frequently does run on a newer card -- slowly on the
+            # first call, while it compiles. Whether this particular build does
+            # is answered by running it, not by comparing version numbers.
+            warnings.append(
                 f"PyTorch {torch.version} in {environment!r} was built for CUDA "
-                f"{torch.cuda}, which has no kernels for this machine's GPU "
-                f"({architecture}, needing CUDA {needed[0]}.{needed[1]} or newer)"
+                f"{torch.cuda}, older than the CUDA {needed[0]}.{needed[1]} this "
+                f"GPU ({architecture}) was released with. It will usually still "
+                "run, by compiling PTX for the card on first use, which makes "
+                "the first call slow"
             )
-            remedies.append(f"structbio fix-env --force, or run: {upgrade}")
+            remedies.append(
+                f"if runs fail with 'no kernel image is available', "
+                f"structbio env verify {tool_name} will confirm it"
+            )
             return problems, warnings, remedies
         built = tuple(int(part) for part in torch.cuda.split(".")[:2])
         if built > driver:
+            # This direction really does fail: a driver cannot load a CUDA
+            # runtime newer than itself, and there is no PTX path around it.
             problems.append(
                 f"PyTorch {torch.version} in {environment!r} was built for CUDA "
-                f"{torch.cuda}, which this driver ({driver[0]}.{driver[1]}) cannot run"
+                f"{torch.cuda}, which this driver ({driver[0]}.{driver[1]}) cannot load"
             )
             remedies.extend(
                 pinned.remedies(environment)

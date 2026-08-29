@@ -74,8 +74,10 @@ def test_missing_torch_is_reported_with_a_command(
     monkeypatch.setattr(environment, "detect_gpu", lambda: {"available": True, "models": [], "cuda_driver": "12.4"})
 
     problems, warnings, remedies = diagnose_torch("mlfold")
-    assert any("PyTorch is not installed" in problem for problem in problems)
-    assert warnings == []
+    # A warning, not a refusal: the tool's own import error is clearer than a
+    # wrong refusal built on reading files.
+    assert problems == []
+    assert any("no PyTorch was found" in warning for warning in warnings)
     assert any("whl/cu124" in remedy for remedy in remedies)
 
 
@@ -203,7 +205,8 @@ def test_a_gpu_newer_than_the_pinned_cuda_warns_without_blocking(
 
     problems, warnings, remedies = environment.diagnose_torch("SE3nv", pinned=SE3NV)
     assert problems == []
-    assert any("no kernel image is available" in warning for warning in warnings)
+    assert any("usually still runs" in warning for warning in warnings)
+    assert any("PTX" in warning for warning in warnings)
     assert any("env verify" in remedy for remedy in remedies)
 
 
@@ -226,24 +229,6 @@ def test_an_older_gpu_still_gets_the_ordinary_repair(
     assert problems == []
     assert any("CPU-only build" in warning for warning in warnings)
     assert any("pytorch=1.9 cudatoolkit=11.1" in remedy for remedy in remedies)
-
-
-def test_an_unpinned_environment_on_a_too_new_gpu_is_told_to_upgrade(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    prefix = _env_with_torch(tmp_path / "env", CUDA_VERSION_FILE)  # built for 12.1
-    monkeypatch.setattr(environment, "conda_environments", lambda: {"mlfold": prefix})
-    monkeypatch.setattr(environment, "driver_cuda_version", lambda: (12, 8))
-    monkeypatch.setattr(
-        environment,
-        "detect_gpu",
-        lambda: {"available": True, "models": [], "cuda_driver": "12.8"},
-    )
-    monkeypatch.setattr(environment, "gpu_capabilities", lambda: [(12, 0)])
-
-    problems, _, remedies = environment.diagnose_torch("mlfold")
-    assert any("no kernels for this machine's GPU" in problem for problem in problems)
-    assert any("whl/cu128" in remedy for remedy in remedies)
 
 
 def test_no_gpu_information_means_no_hardware_claim(monkeypatch: pytest.MonkeyPatch) -> None:

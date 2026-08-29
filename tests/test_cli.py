@@ -485,14 +485,23 @@ def _conda_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, torch: str | No
     return checkout
 
 
-def test_a_run_stops_when_torch_is_missing_and_says_how_to_install_it(
+def test_a_missing_torch_warns_without_stopping_the_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tiny_pdb: Path
 ) -> None:
+    """Reading files has been wrong before; the tool's own error is clearer."""
+
     _conda_tool(tmp_path, monkeypatch, torch=None)
-    result = runner.invoke(app, ["proteinmpnn", "design", str(tiny_pdb), "2", "out"])
-    assert result.exit_code == 2
-    assert "PyTorch is not installed" in result.output
-    assert "whl/cu124" in result.output
+    result = runner.invoke(
+        app, ["proteinmpnn", "design", str(tiny_pdb), "2", "out", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+
+    check = get_backends()["proteinmpnn"].check_environment(
+        load_settings().tools["proteinmpnn"]
+    )
+    assert check.found
+    assert any("no PyTorch was found" in warning for warning in check.warnings)
+    assert any("whl/cu124" in remedy for remedy in check.remedies)
 
 
 def test_fix_env_prints_the_command_and_installs_nothing_by_default(
@@ -560,13 +569,13 @@ def test_a_cpu_only_torch_warns_but_does_not_block_a_run(
     assert any("CPU-only build" in warning for warning in check.warnings)
 
 
-def test_doctor_marks_a_degraded_installation_separately(
+def test_doctor_marks_a_working_but_warned_installation_separately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _conda_tool(tmp_path, monkeypatch, torch="__version__ = '2.3.1'\ncuda = None\n")
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0, result.output
-    assert "FOUND, DEGRADED" in result.output
+    assert "FOUND, WITH WARNINGS" in result.output
     assert "warning:" in result.output
 
 
@@ -608,10 +617,21 @@ def test_fix_env_will_not_upgrade_a_pinned_environment(
     assert calls == []
 
 
-def test_a_failed_run_points_at_env_create(
+def test_a_genuinely_unreachable_tool_points_at_env_create(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tiny_pdb: Path
 ) -> None:
-    _conda_tool(tmp_path, monkeypatch, torch=None)
+    user_config = tmp_path / "user.yaml"
+    user_config.write_text(
+        "tools:\n"
+        "  proteinmpnn:\n"
+        f"    path: {tmp_path / 'absent'}\n"
+        "    executable: protein_mpnn_run.py\n"
+        "    manager: conda\n"
+        "    environment: mlfold\n"
+    )
+    monkeypatch.setenv("STRUCTBIO_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("STRUCTBIO_LAB_CONFIG", str(tmp_path / "absent.yaml"))
+    monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["proteinmpnn", "design", str(tiny_pdb), "2", "out"])
     assert result.exit_code == 2
     assert "structbio env create proteinmpnn" in result.output
