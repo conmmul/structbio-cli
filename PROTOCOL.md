@@ -424,6 +424,27 @@ before the PyTorch one, so conda often picks a version of PyTorch built without
 graphics-card support. It is a quirk of the upstream file, not a mistake you
 made.
 
+#### If PyTorch cannot see the graphics card
+
+`structbio env verify rfdiffusion` saying `CUDA none` and `no GPU` means the
+PyTorch that was installed has no graphics-card support built in. It is a very
+common outcome of the standard install, and it is why runs are slow or fail.
+
+Fix it without rebuilding anything:
+
+```bash
+structbio env repair rfdiffusion
+```
+
+This replaces only PyTorch, and for RFdiffusion the graph library that goes
+with it, leaving everything else in the environment alone. Then check it:
+
+```bash
+structbio env verify rfdiffusion
+```
+
+You want to see your card's name and no `FAILED` lines.
+
 #### When no fix will work
 
 On a recent graphics card you may instead see:

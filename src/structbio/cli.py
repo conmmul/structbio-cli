@@ -1043,6 +1043,54 @@ def env_adopt(
     )
 
 
+@env_app.command("repair")
+def env_repair(
+    tool: str = typer.Argument(..., help="rfdiffusion or proteinmpnn"),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask before installing"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the plan and change nothing"),
+) -> None:
+    """Put a CUDA-capable PyTorch into the environment you already have.
+
+    Nothing is removed and nothing else in the environment changes. Use this
+    rather than 'env create' whenever the environment is otherwise working.
+    """
+
+    installation, _ = _installation_for(tool)
+    plan = provision.repair_plan(tool, installation)
+    typer.echo(f"{tool}: repairing {plan.environment}\n")
+    if plan.blocked:
+        typer.echo(f"Cannot repair this environment: {plan.blocked}\n")
+        for alternative in plan.alternatives:
+            typer.echo(f"  {alternative}")
+        raise typer.Exit(1)
+
+    _show_plan(plan)
+    if dry_run:
+        typer.echo("\nDry run: nothing was changed.")
+        return
+    if not yes and not typer.confirm(
+        f"\nChange PyTorch in {plan.environment}? Its current PyTorch is replaced"
+    ):
+        typer.echo("Nothing was changed.")
+        raise typer.Exit(1)
+
+    for index, step in enumerate(plan.steps, start=1):
+        typer.echo(f"\n[{index}/{len(plan.steps)}] {step.description}")
+        result = subprocess.run(list(step.argv), check=False)
+        if result.returncode:
+            typer.echo(
+                f"\nStep {index} failed with exit code {result.returncode}:\n"
+                f"  {step.render()}\nThe environment is unchanged from this step "
+                "onwards; earlier steps did apply.",
+                err=True,
+            )
+            raise typer.Exit(result.returncode)
+
+    typer.echo("\nChecking that the GPU is now usable...")
+    if not _report_probe(tool, plan.environment, provision.verify(tool, plan.environment)):
+        raise typer.Exit(1)
+
+
 @env_app.command("create")
 def env_create(
     tool: str = typer.Argument(..., help="rfdiffusion or proteinmpnn"),

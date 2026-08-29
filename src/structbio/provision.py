@@ -620,5 +620,113 @@ def move_aside(name: str) -> str | None:
     return target
 
 
+# Conda builds that pair PyTorch and DGL for the same CUDA and the same
+# PyTorch release, read from the pytorch and dglteam channels on 2026-08-29 via
+# api.anaconda.org. These matter because a machine may reach the conda channels
+# while pip cannot reach download.pytorch.org, which is exactly the case that
+# prompted them.
+CONDA_PAIRINGS: dict[str, dict[str, str]] = {
+    "py3.9": {
+        "torch": "pytorch=2.3.1=py3.9_cuda11.8_cudnn8.7.0_0",
+        "dgl": "dgl=2.4.0.th23.cu118=py39_0",
+        "cuda": "11.8",
+    },
+}
+CONDA_CHANNELS = ("-c", "pytorch", "-c", "nvidia", "-c", "dglteam", "-c", "conda-forge")
+
+
+def conda_pairing(tag: str) -> dict[str, str] | None:
+    """The verified conda build pair for a Python tag such as cp39."""
+
+    if not tag.startswith("cp") or len(tag) < 4:
+        return None
+    return CONDA_PAIRINGS.get(f"py3.{tag[3:]}")
+
+
+def repair_plan(tool: str, installation: ToolInstallation) -> EnvironmentPlan:
+    """Put a CUDA-capable PyTorch into an environment that already exists.
+
+    Repairing beats rebuilding: everything else in the environment, including
+    work the researcher did to make the tool run, is left alone.
+    """
+
+    name = installation.environment or _default_name(tool)
+    if not environment_exists(name):
+        return EnvironmentPlan(
+            tool=tool,
+            environment=name,
+            blocked=f"there is no conda environment named {name!r}",
+            alternatives=(f"build one with: structbio env create {tool}",),
+        )
+
+    facts = environment_facts(name)
+    tag = facts.get("tag", "")
+    pairing = conda_pairing(tag)
+    if pairing is None:
+        return EnvironmentPlan(
+            tool=tool,
+            environment=name,
+            blocked=(
+                f"{name} runs Python {facts.get('python', 'unknown')}, and no "
+                "verified conda pairing of PyTorch and DGL is recorded for it"
+            ),
+            alternatives=(
+                f"structbio env create {tool} builds a fresh environment instead",
+                "or install a CUDA PyTorch yourself and re-run "
+                f"'structbio env verify {tool}'",
+            ),
+        )
+
+    capability = machine_capability()
+    requirement = environment.required_cuda(capability) if capability else None
+    architecture = requirement[1] if requirement else "this GPU"
+
+    steps = [
+        Step(
+            f"install a CUDA {pairing['cuda']} PyTorch into {name}",
+            ("conda", "install", "-y", "-n", name, *CONDA_CHANNELS, pairing["torch"]),
+        )
+    ]
+    if tool == "rfdiffusion":
+        steps.append(
+            Step(
+                f"install the matching DGL ({pairing['cuda']})",
+                ("conda", "install", "-y", "-n", name, *CONDA_CHANNELS, pairing["dgl"]),
+            )
+        )
+        checkout = installation.path.expanduser() if installation.path else None
+        if checkout:
+            steps.extend(
+                (
+                    Step(
+                        "reinstall the bundled SE3Transformer against the new PyTorch",
+                        ("conda", "run", "-n", name, "pip", "install", "--no-deps",
+                         "--force-reinstall", "-e", str(checkout / "env" / "SE3Transformer")),
+                    ),
+                    Step(
+                        "reinstall RFdiffusion",
+                        ("conda", "run", "-n", name, "pip", "install", "--no-deps",
+                         "--force-reinstall", "-e", str(checkout)),
+                    ),
+                )
+            )
+    return EnvironmentPlan(
+        tool=tool,
+        environment=name,
+        steps=tuple(steps),
+        upstream_verified=False,
+        notes=(
+            f"{name} keeps its Python {facts.get('python', '?')} and everything else "
+            "in it; only PyTorch and DGL change.",
+            "These builds come from the conda channels, not from pip, so a machine "
+            "that cannot reach download.pytorch.org can still install them.",
+            f"CUDA {pairing['cuda']} supports {architecture} natively, so no PTX "
+            "compilation is needed at run time.",
+            "PyTorch 2.3 is newer than RFdiffusion pins. Check your first designs "
+            "against a known result before trusting a campaign to it.",
+        ),
+    )
+
+
 def environment_exists(name: str) -> bool:
     return name in environment.conda_environments()

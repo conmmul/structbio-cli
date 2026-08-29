@@ -118,6 +118,43 @@ Then record it rather than letting structbio build another:
 structbio env adopt rfdiffusion --environment SE3nv
 ```
 
+### PyTorch cannot see the GPU
+
+```text
+PyTorch 1.9.1.post3 (CUDA none), device: no GPU
+```
+
+`CUDA none` means the installed PyTorch was built without CUDA at all. This is
+not a version mismatch and no driver or card is at fault; conda simply resolved
+a CPU build. RFdiffusion's `env/SE3nv.yml` invites it by listing `defaults` and
+`conda-forge` ahead of the `pytorch` channel, and a conda-forge build carrying
+a `.postN` suffix is the usual result.
+
+Repair the environment rather than rebuilding it:
+
+```bash
+structbio env repair rfdiffusion
+```
+
+That installs a CUDA PyTorch, and for RFdiffusion the matching DGL, **from the
+conda channels**. Everything else in the environment is untouched. Conda
+matters here: a machine may reach `conda.anaconda.org` while pip cannot reach
+`download.pytorch.org`, and then a pip-based install cannot work at all.
+
+The pairings it uses were read from the pytorch and dglteam channels rather
+than assumed. For Python 3.9 on an Ada, Hopper or Ampere card:
+
+| Package | Build |
+| --- | --- |
+| PyTorch | `pytorch=2.3.1=py3.9_cuda11.8_cudnn8.7.0_0` |
+| DGL | `dgl=2.4.0.th23.cu118=py39_0` |
+
+Both are CUDA 11.8, which supports Ada natively, and DGL's `th23` marks it as
+built for PyTorch 2.3. Those two facts have to hold together; a DGL built for a
+different PyTorch fails at import.
+
+`structbio env verify` afterwards is what confirms it, by computing on the card.
+
 ### An environment that already works
 
 Use it rather than replacing it:

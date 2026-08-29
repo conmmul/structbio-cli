@@ -415,3 +415,78 @@ def test_a_reachable_index_is_not_blamed_on_the_environment(
     # It must not claim the wheels are missing, which was the wrong answer.
     assert "neither builds for" not in joined
     assert "x86_64 only" not in joined
+
+
+def test_repair_keeps_the_environment_and_only_changes_pytorch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from structbio.config import ToolInstallation
+
+    checkout = tmp_path / "RFdiffusion"
+    checkout.mkdir()
+    monkeypatch.setattr(provision, "environment_exists", lambda name: True)
+    monkeypatch.setattr(
+        provision, "environment_facts", lambda name: {"python": "3.9.25", "tag": "cp39"}
+    )
+    monkeypatch.setattr(provision.environment, "gpu_capabilities", lambda: [(8, 9)])
+
+    plan = provision.repair_plan(
+        "rfdiffusion",
+        ToolInstallation(path=checkout, manager="conda", environment="SE3nv"),
+    )
+    assert plan.possible
+    rendered = [step.render() for step in plan.steps]
+    # Nothing is created or removed.
+    assert not any("conda create" in step or "env remove" in step for step in rendered)
+    assert not any("rename" in step for step in rendered)
+    # PyTorch and DGL are the verified conda pair for this Python.
+    assert any("pytorch=2.3.1=py3.9_cuda11.8_cudnn8.7.0_0" in step for step in rendered)
+    assert any("dgl=2.4.0.th23.cu118=py39_0" in step for step in rendered)
+    # Installed from conda, not from the pip index this machine cannot reach.
+    assert not any("download.pytorch.org" in step for step in rendered)
+
+
+def test_repair_refuses_a_python_it_has_no_verified_pair_for(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from structbio.config import ToolInstallation
+
+    monkeypatch.setattr(provision, "environment_exists", lambda name: True)
+    monkeypatch.setattr(
+        provision, "environment_facts", lambda name: {"python": "3.12.1", "tag": "cp312"}
+    )
+    plan = provision.repair_plan(
+        "rfdiffusion", ToolInstallation(manager="conda", environment="SE3nv")
+    )
+    assert not plan.possible
+    assert "no verified conda pairing" in plan.blocked
+
+
+def test_repair_needs_the_environment_to_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    from structbio.config import ToolInstallation
+
+    monkeypatch.setattr(provision, "environment_exists", lambda name: False)
+    plan = provision.repair_plan(
+        "proteinmpnn", ToolInstallation(manager="conda", environment="mlfold")
+    )
+    assert not plan.possible
+    assert "no conda environment named" in plan.blocked
+
+
+def test_proteinmpnn_repair_does_not_touch_dgl(monkeypatch: pytest.MonkeyPatch) -> None:
+    from structbio.config import ToolInstallation
+
+    monkeypatch.setattr(provision, "environment_exists", lambda name: True)
+    monkeypatch.setattr(
+        provision, "environment_facts", lambda name: {"python": "3.9.25", "tag": "cp39"}
+    )
+    monkeypatch.setattr(provision.environment, "gpu_capabilities", lambda: [(8, 9)])
+    plan = provision.repair_plan(
+        "proteinmpnn", ToolInstallation(manager="conda", environment="mlfold")
+    )
+    rendered = " ".join(step.render() for step in plan.steps)
+    assert "pytorch=2.3.1" in rendered
+    # ProteinMPNN does not use DGL, so no dgl package is installed. The dglteam
+    # channel appears in the channel list, so check the package spec instead.
+    assert "dgl=" not in rendered
+    assert len(plan.steps) == 1
